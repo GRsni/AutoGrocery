@@ -1,0 +1,112 @@
+# ============================================
+# Go specific files and folders
+# ============================================
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.out
+*.log
+*.test
+coverage.out
+*.parquet
+go.sum
+
+# ============================================
+# Credentials and secrets (DO NOT COMMIT!)
+# ============================================
+credentials.json
+config/token.json
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+
+# ============================================
+# Google OAuth tokens
+# ============================================
+*.json  # This catches token files, be careful if you have other JSON configs
+
+# ============================================
+# IDE and editor files
+# ============================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.classpath
+.settings/
+*.iml
+
+# ============================================
+# OS generated files
+# ============================================
+Thumbs.db
+.DS_Store
+Desktop.ini
+ehthumbs.db
+ehthumbs.idx
+
+# ============================================
+# Build artifacts and caches
+# ============================================
+bin/
+dist/
+build/
+tmp/
+temp/
+*.tmp
+*.cache
+
+# ============================================
+# Test coverage reports
+# ============================================
+coverage.html
+coverage.json
+coverage.txt
+*.cover
+
+# ============================================
+# Go workspace files (optional)
+# ============================================
+go.work
+go.work.sum
+
+# ============================================
+# External libraries folder (if it's not versioned)
+# ============================================
+External Libraries/
+
+# ============================================
+# Logs and temporary data
+# ============================================
+*.log
+*.tmp
+*.temp
+cache/
+data/
+
+
+# Don't ignore test files!
+*_test.go
+
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
