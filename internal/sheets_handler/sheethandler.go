@@ -11,21 +11,6 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
-type CredentialsConfig struct {
-	Sheets struct {
-		MainID string `json:"main-id"`
-	} `json:"sheets"`
-	// Add other sections as needed
-	Carrefour struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	} `json:"carrefour"`
-	Dia struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	} `json:"dia"`
-}
-
 func GetSheetService(ctx context.Context, tokFile string, credsFile string) (*sheets.Service, error) {
 	b, err := os.ReadFile(credsFile)
 	if err != nil {
