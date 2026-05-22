@@ -95,7 +95,7 @@ func TestGetClient_ReturnsNonNilClient(t *testing.T) {
 	config := &oauth2.Config{
 		ClientID:    "test_client_id",
 		RedirectURL: "http://localhost",
-		Scopes:      []string{"sheets.readonly"},
+		Scopes:      []string{"sheets_handler.readonly"},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://example.com/auth",
 			TokenURL: "https://example.com/token",
@@ -129,7 +129,7 @@ func TestGetClient_WithExistingToken(t *testing.T) {
 	config := &oauth2.Config{
 		ClientID:    "test_client_id",
 		RedirectURL: "http://localhost",
-		Scopes:      []string{"sheets.readonly"},
+		Scopes:      []string{"sheets_handler.readonly"},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://example.com/auth",
 			TokenURL: "https://example.com/token",
@@ -159,7 +159,7 @@ func TestGetClient_NoExistingToken_TriesWeb(t *testing.T) {
 	config := &oauth2.Config{
 		ClientID:    "test_client_id",
 		RedirectURL: "http://localhost",
-		Scopes:      []string{"sheets.readonly"},
+		Scopes:      []string{"sheets_handler.readonly"},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://example.com/auth",
 			TokenURL: "https://example.com/token",
@@ -288,7 +288,7 @@ func newTestConfig() *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:    "test_client_id",
 		RedirectURL: "http://localhost/callback",
-		Scopes:      []string{"sheets.readonly"},
+		Scopes:      []string{"sheets_handler.readonly"},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://example.com/auth",
 			TokenURL: "https://example.com/token",

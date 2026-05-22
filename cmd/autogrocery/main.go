@@ -1,37 +1,22 @@
 package main
 
 import (
-	"autoGrocery/internal/token"
+	"autoGrocery/internal/sheets_handler"
 	"autoGrocery/pkg/constants"
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"time"
-
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/option"
-	"google.golang.org/api/sheets/v4"
 )
 
 func main() {
 	tokFile := "config/token.json"
-	spreadsheetId := "1QG3-vZCIqXut4oz_4r4OkGJeMV91SRZ5od_3rLYj1Ao"
+	credsFile := "config/credentials.json"
+	spreadsheetId := "foo"
 
 	ctx := context.Background()
-	b, err := os.ReadFile("config/credentials.json")
-	if err != nil {
-		log.Fatalf("Unable to read client secret file: %v", err)
-	}
 
-	// If modifying these scopes, delete your previously saved token.json.
-	config, err := google.ConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets.readonly")
-	if err != nil {
-		log.Fatalf("Unable to parse client secret file to config: %v", err)
-	}
-	client := token.GetClient(config, tokFile)
-
-	srv, err := sheets.NewService(ctx, option.WithHTTPClient(client))
+	srv, err := sheets_handler.GetSheetService(ctx, tokFile, credsFile)
 	if err != nil {
 		log.Fatalf("Unable to retrieve Sheets client: %v", err)
 	}
@@ -55,4 +40,5 @@ func main() {
 			fmt.Println()
 		}
 	}
+
 }

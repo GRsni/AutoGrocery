@@ -25,10 +25,6 @@ config/token.json
 *.key
 *.p12
 
-# ============================================
-# Google OAuth tokens
-# ============================================
-*.json  # This catches token files, be careful if you have other JSON configs
 
 # ============================================
 # IDE and editor files
