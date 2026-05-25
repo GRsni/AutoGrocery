@@ -16,8 +16,8 @@ go.sum
 # ============================================
 # Credentials and secrets (DO NOT COMMIT!)
 # ============================================
-credentials.json
-config/token.json
+config/credentials/*.json
+config/credentials/*.txt
 .env
 .env.local
 .env.*.local
@@ -59,6 +59,7 @@ tmp/
 temp/
 *.tmp
 *.cache
+images/debug/
 
 # ============================================
 # Test coverage reports

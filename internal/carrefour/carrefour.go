@@ -1,4 +1,4 @@
-package extractor
+package carrefour
 
 import (
 	"encoding/json"
@@ -13,8 +13,10 @@ import (
 )
 
 type Credentials struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Carrefour struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	} `json:"carrefour"`
 }
 
 func LoadCredentials(filePath string) (*Credentials, error) {
@@ -59,7 +61,7 @@ func LoginToCarrefour(creds *Credentials) {
 	}
 	if found {
 		el.MustClick()
-		page.MustWaitStable().MustScreenshot("menu.png")
+		page.MustWaitStable().MustScreenshot("images/debug/carrefour/menu.png")
 		fmt.Println("✓ Account menu clicked")
 	} else {
 		fmt.Println("Account menu not found")
@@ -73,7 +75,7 @@ func LoginToCarrefour(creds *Credentials) {
 	}
 	if found {
 		el.MustClick()
-		page.MustWaitStable().MustScreenshot("login.png")
+		page.MustWaitStable().MustScreenshot("images/debug/carrefour/login.png")
 		fmt.Println("✓ Login menu clicked")
 	} else {
 		fmt.Println("Login button not found")
@@ -90,10 +92,10 @@ func LoginToCarrefour(creds *Credentials) {
 
 	// Get the iframe and switch to its page context
 	frame := page.MustElement("iframe[src*='/access']")
-	loginPage := frame.MustFrame()
-	loginPage.MustWaitLoad()
+	loginModal := frame.MustFrame()
+	loginModal.MustWaitLoad()
 
 	// Now query elements inside the iframe
-	loginPage.MustElement("#gigya-loginID-133272631659353340").MustInput("test")
-	loginPage.MustElement("#gigya-password-66067780736329300").MustInput("bar")
+	loginModal.MustElement("#gigya-loginID-133272631659353340").MustInput("test")
+	loginModal.MustElement("#gigya-password-66067780736329300").MustInput("bar")
 }
