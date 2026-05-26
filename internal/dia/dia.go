@@ -148,8 +148,14 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		l.Cleanup()
 		l.Kill()
 	}
-	credentials, _ := LoadCredentials(credentialsPath)
-	rodCookies, _ := LoadSessionFromCookies(cookiesPath)
+	credentials, credLoadErr := LoadCredentials(credentialsPath)
+	if credLoadErr != nil {
+		return nil, cleanup, credLoadErr
+	}
+	rodCookies, cookiesLoadErr := LoadSessionFromCookies(cookiesPath)
+	if cookiesLoadErr != nil {
+		return nil, cleanup, cookiesLoadErr
+	}
 	err := page.SetCookies(rodCookies)
 	if err != nil {
 		return nil, cleanup, err
@@ -216,19 +222,6 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		return nil, cleanup, err
 	}
 	if loginBtnFound {
-		// Log all network responses
-		// Register listener BEFORE clicking
-		proto.NetworkEnable{}.Call(page)
-		go page.EachEvent(func(e *proto.NetworkRequestWillBeSent) {
-			fmt.Println("=== LOGIN REQUEST ===")
-			fmt.Println("URL:", e.Request.URL)
-			fmt.Println("Method:", e.Request.Method)
-			for k, v := range e.Request.Headers {
-				fmt.Printf("  %s: %v\n", k, v)
-				fmt.Println("Body:", e.Request.PostData)
-			}
-		})()
-
 		loginBtn.Hover()
 		time.Sleep(time.Duration(300+rand.Intn(300)) * time.Millisecond)
 		loginBtn.MustClick()
@@ -280,7 +273,7 @@ func GetTicketList(page *rod.Page, lastFound time.Time) map[string]time.Time {
 
 func getDateFromTicket(ticketString string) (content time.Time, err error) {
 	textLines := strings.Split(ticketString, "\n")
-	if len(textLines) < 1 {
+	if len(textLines) < 1 || len(textLines[0]) == 0 {
 		return time.Unix(0, 0), fmt.Errorf("ticket string has no lines")
 	}
 	layout := "2/1/2006"

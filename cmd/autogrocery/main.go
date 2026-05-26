@@ -54,6 +54,7 @@ func main() {
 
 	diaPage, cleanup, err := dia.LoginToDia(credentialsPath, cookiesPath)
 	if err != nil {
+		cleanup()
 		return
 	}
 	dia.GetTicketList(diaPage, time.Now())
