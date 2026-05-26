@@ -2,6 +2,7 @@ package main
 
 import (
 	"autoGrocery/internal/dia"
+	"time"
 )
 
 type CredentialsConfig struct {
@@ -12,7 +13,7 @@ type CredentialsConfig struct {
 
 func main() {
 	cookiesPath := "config/credentials/cookies-www-dia-es.txt"
-
+	credentialsPath := "config/credentials/credentials.json"
 	//ctx := context.Background()
 	//
 	// tokFile := "config/token.json"
@@ -51,11 +52,11 @@ func main() {
 	//	}
 	//}
 
-	diaPage, cleanup, err := dia.LoginToDia(cookiesPath)
+	diaPage, cleanup, err := dia.LoginToDia(credentialsPath, cookiesPath)
 	if err != nil {
 		return
 	}
-	dia.GetTicketList(diaPage)
+	dia.GetTicketList(diaPage, time.Now())
 	defer cleanup()
 
 	diaPage.Close()
