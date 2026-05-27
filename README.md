@@ -1,12 +1,14 @@
 # autoGrocery
 
-A Go-based application for automatically reading grocery data from Mercadona, Carrefour, and Dia, and displaying grocery
-data from Google Sheets.
+[![Go Coverage](https://github.com/GRsni/AutoGrocery/wiki/coverage.svg)](https://raw.githack.com/wiki/GRsni/AutoGrocery/coverage.html)
+
+A Go-based application for automatically reading grocery data from Mercadona, Carrefour, and Dia,
+and displaying grocery data from Google Sheets.
 
 ## 📋 Overview
 
-`autoGrocery` is a command-line tool that connects to a Google Spreadsheet via the Sheets API, authenticates using
-OAuth2, and retrieves grocery data organized by month and year.
+`autoGrocery` is a command-line tool that connects to a Google Spreadsheet via the Sheets API,
+authenticates using OAuth2, and retrieves grocery data organized by month and year.
 
 ## ✨ Features
 
@@ -34,8 +36,8 @@ OAuth2, and retrieves grocery data organized by month and year.
 
 ### 2. Application Token
 
-After first run, a token file will be created at `config/token.json`. Delete this file if you need to regenerate
-authentication tokens.
+After first run, a token file will be created at `config/token.json`. Delete this file if you need
+to regenerate authentication tokens.
 
 ### 3. Spreadsheet Configuration
 
