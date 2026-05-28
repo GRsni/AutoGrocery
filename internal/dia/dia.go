@@ -262,7 +262,7 @@ func GetTicketList(page *rod.Page, lastFound time.Time) map[string]time.Time {
 		if err != nil {
 			return nil
 		}
-		fmt.Println(dateFromTicket)
+		//fmt.Println(dateFromTicket)
 		if dateFromTicket.After(lastFound) {
 			ticketDates[text] = dateFromTicket
 		}

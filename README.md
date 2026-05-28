@@ -7,23 +7,30 @@ and displaying grocery data from Google Sheets.
 
 ## 📋 Overview
 
-`autoGrocery` is a command-line tool that connects to a Google Spreadsheet via the Sheets API,
-authenticates using OAuth2, and retrieves grocery data organized by month and year.
+`autoGrocery` is a command-line tool that:
+
+- Scrapes grocery data from popular Spanish supermarket websites (Mercadona, Carrefour, Dia)
+- Stores the data in a Google Spreadsheet via the Sheets API
+- Authenticates using OAuth2 for secure access
 
 ## ✨ Features
 
-- **Google Sheets Integration**: Read data directly from Google Sheets using the official Sheets API
+- **Multi-Supermarket Support**: Read data from Mercadona, Carrefour, and Dia
+- **Google Sheets Integration**: Store and retrieve data directly from Google Sheets using the
+  official Sheets API
 - **OAuth2 Authentication**: Secure authentication with Google credentials
 - **Monthly Organization**: Data is organized by months and years for easy retrieval
 - **Simple CLI Interface**: Easy-to-use command-line application
+- **Comprehensive Testing**: Includes unit tests for core functionality
 - **Error Handling**: Comprehensive error handling for reliable execution
 
 ## 🛠️ Prerequisites
 
-- Go 1.25 or higher
+- Go 1.26 or higher
 - A Google Cloud project with Sheets API enabled
 - OAuth2 credentials (client secret JSON file)
 - A Google Spreadsheet ID with read-only access
+- Browser automation capabilities (for scraping supermarket sites)
 
 ## 🔧 Setup & Configuration
 
@@ -36,10 +43,17 @@ authenticates using OAuth2, and retrieves grocery data organized by month and ye
 
 ### 2. Application Token
 
-After first run, a token file will be created at `config/token.json`. Delete this file if you need
-to regenerate authentication tokens.
+After the first run, a token file will be created at `config/credentials/token.json`. Delete this
+file if you need to regenerate authentication tokens.
 
-### 3. Spreadsheet Configuration
+### 3. Cookie Configuration
+
+For supermarket data scraping:
+
+- **Dia**: Store cookies in `config/cookies-www-dia-es.txt`
+- Additional cookie files may be needed for other supermarkets
+
+### 4. Spreadsheet Configuration
 
 Your Google Spreadsheet should have:
 
@@ -52,21 +66,41 @@ Your Google Spreadsheet should have:
 ```
 autoGrocery/ 
 ├── cmd/autogrocery/ # Main application entry point 
-│ └── main.go 
-├── config/ # Configuration files 
-│ 
-├── credentials.json # OAuth2 client credentials 
+│ └── main.go ├── config/ # Configuration files 
+│ └── credentials/ # OAuth2 and cookie credentials 
+│ ├── cookies-www-dia-es.txt 
+│ ├── credentials.json # OAuth2 client credentials 
+│ ├── dia_cookies.txt # Dia-specific cookies 
 │ └── token.json # OAuth2 token (generated on first run) 
-├── internal/ 
-│ 
-├── sheets/ # Google Sheets API integration 
+├── internal/ # Internal packages 
+│ ├── carrefour/ # Carrefour integration 
+│ │ └── carrefour.go 
+│ ├── dia/ # Dia integration with tests 
+│ │ ├── dia.go 
+│ │ └── dia_test.go 
+│ ├── sheets_handler/ # Google Sheets API integration 
+│ │ ├── sheethandler.go 
+│ │ └── sheethandler_test.go 
 │ └── token/ # Token management 
-│ └── manager.go # OAuth2 token handling 
-├── pkg/ 
+│ ├── manager.go 
+│ └── manager_test.go 
+├── pkg/ # Public packages 
 │ └── constants/ # Application constants 
+│ ├── markets.go # Market/supermarket definitions 
 │ └── months.go # Month name mappings 
+├── images/debug/ # Debug screenshots 
+│ ├── carrefour/ 
+│ │ ├── details.png 
+│ │ ├── login.png 
+│ │ └── menu.png 
+│ └── dia/ 
+│ ├── email-sent.png 
+│ ├── login.png 
+│ └── username-added.png 
+├── .github/workflows/ # CI/CD workflows 
 ├── go.mod # Go module definition 
-└── .gitignore # Git ignore rules
+├── go.sum # Dependency checksums 
+└── README.md # This file
 ```
 
 ## 🚀 Usage
@@ -85,46 +119,69 @@ Run the application:
 
 The application will:
 
-- Read your Google Sheets data for the current month
-- Display the data in a formatted output
-- Show all grocery items with their details
+1. Authenticate with Google Sheets API
+2. Scrape grocery data from configured supermarkets
+3. Store the data in your Google Spreadsheet
+4. Display a summary of the collected data
 
 ## 🔍 Technical Details
 
 ### Dependencies
 
-- `golang.org/x/oauth2/google` - OAuth2 authentication
-- `google.golang.org/api/sheets/v4` - Google Sheets API client
+- **Web Scraping & Automation**
+    - `github.com/go-rod/rod v0.116.2` - Browser automation
+    - `github.com/go-rod/stealth v0.4.9` - Stealth mode for automation
+
+- **Google Services**
+    - `golang.org/x/oauth2 v0.36.0` - OAuth2 authentication
+    - `google.golang.org/api v0.280.0` - Google Sheets API client
 
 ### Authentication Flow
 
 1. Application loads OAuth2 credentials from `config/credentials.json`
 2. Creates a Google Sheets client service
 3. Authenticates and obtains an access token
-4. Saves the token to for subsequent runs `config/token.json`
+4. Saves the token to `config/credentials/token.json` for subsequent runs
 5. Queries the spreadsheet with the configured range
+
+### Cookie Management
+
+For supermarket scraping, cookies are managed in:
+
+- `config/credentials/dia_cookies.txt` - Dia-specific session cookies
+- Additional cookie files may be required for other supermarkets
 
 ## ⚠️ Security Notes
 
-- contains sensitive OAuth2 credentials - keep it secure `credentials.json`
-- stores authentication tokens - restrict file permissions `token.json`
-- The application uses read-only scope: `https://www.googleapis.com/auth/spreadsheets.readonly`
+- **Sensitive Credentials**: Contains OAuth2 credentials in `config/credentials/credentials.json` -
+  keep it secure and never commit to version control
+- **Token Storage**: Stores authentication tokens in `config/credentials/token.json` - restrict file
+  permissions (chmod 600)
+- **Cookie Files**: Browser cookies contain session data - handle with care
+- **Read-Only Scope**: The application uses read-only scope:
+  `https://www.googleapis.com/auth/spreadsheets.readonly`
 
 ## 🧪 Testing
 
-Run tests (if available):
+Run tests to verify functionality:
 
+```bash
+ go test ./...
 ```
-go test ./...
-```
+
+Tests are available for:
+
+- Token management (`internal/token/`)
+- Sheets handler (`internal/sheets_handler/`)
+- Dia integration (`internal/dia/`)
 
 ## 🤝 Contributing
 
-- Fork the repository
-- Create a feature branch
-- Commit your changes
-- Push to the branch
-- Open a Pull Request
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
 
 ## 📞 Support
 
