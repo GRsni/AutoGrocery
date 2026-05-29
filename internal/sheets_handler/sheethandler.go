@@ -44,5 +44,8 @@ func GetSheetsConfig(credentialsPath string) (*SheetsConfig, error) {
 		fmt.Println("Failed to unmarshal credentials config:", err)
 		return nil, err
 	}
+	if sheetsConfig.Sheets.MainID == "" {
+		return nil, fmt.Errorf("main sheet ID is empty")
+	}
 	return &sheetsConfig, nil
 }

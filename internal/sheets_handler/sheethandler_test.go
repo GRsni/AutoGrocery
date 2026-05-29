@@ -162,15 +162,10 @@ func TestGetSheetsConfig_Validation(t *testing.T) {
 	})
 }
 
-func TestGetSheetsConfig_FilePermissions(t *testing.T) {
-	t.Run("handles unreadable file", func(t *testing.T) {
+func TestGetSheetsConfig_MissingFile(t *testing.T) {
+	t.Run("handles missing file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		credentialsFile := filepath.Join(tmpDir, "credentials.json")
-
-		// Create a file with no permissions
-		if err := os.WriteFile(credentialsFile, []byte(`{"sheets":{"main-id":"test"}}`), 0000); err != nil {
-			t.Fatalf("Failed to write credentials file: %v", err)
-		}
 
 		_, err := GetSheetsConfig(credentialsFile)
 		if err == nil {
