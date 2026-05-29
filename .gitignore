@@ -89,10 +89,6 @@ cache/
 data/
 
 
-# Don't ignore test files!
-*_test.go
-
-
 # macOS
 .DS_Store
 

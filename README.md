@@ -32,35 +32,6 @@ and displaying grocery data from Google Sheets.
 - A Google Spreadsheet ID with read-only access
 - Browser automation capabilities (for scraping supermarket sites)
 
-## 🔧 Setup & Configuration
-
-### 1. Google Cloud Setup
-
-1. Create a Google Cloud project at [Google Cloud Console](https://console.cloud.google.com/)
-2. Enable the **Google Sheets API**
-3. Create OAuth2 credentials (Client Secret)
-4. Download and save the credentials as `config/credentials.json`
-
-### 2. Application Token
-
-After the first run, a token file will be created at `config/credentials/token.json`. Delete this
-file if you need to regenerate authentication tokens.
-
-### 3. Cookie Configuration
-
-For supermarket data scraping:
-
-- **Dia**: Store cookies in `config/cookies-www-dia-es.txt`
-- Additional cookie files may be needed for other supermarkets
-
-### 4. Spreadsheet Configuration
-
-Your Google Spreadsheet should have:
-
-- **Spreadsheet ID**: `1QG3-vZCIqXut4oz_4r4OkGJeMV91SRZ5od_3rLYj1Ao`
-- **Data Range**: Columns A-F, rows 1-92
-- **Month Headers**: First row contains month names
-
 ## 📁 Project Structure
 
 ```
@@ -157,7 +128,7 @@ For supermarket scraping, cookies are managed in:
   keep it secure and never commit to version control
 - **Token Storage**: Stores authentication tokens in `config/credentials/token.json` - restrict file
   permissions (chmod 600)
-- **Cookie Files**: Browser cookies contain session data - handle with care
+- **Cookie Files**: Browser cookies contain session data – handle with care
 - **Read-Only Scope**: The application uses read-only scope:
   `https://www.googleapis.com/auth/spreadsheets.readonly`
 
