@@ -1,6 +1,7 @@
 package dia
 
 import (
+	"autoGrocery/utils"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,22 @@ type Cookie struct {
 	Expiry float64 `json:"expirationDate"`
 }
 
+type Item struct {
+	name   string
+	amount float64
+	price  float64
+}
+
+type Ticket struct {
+	items []Item
+	id    string
+	total float64
+}
+
+func PrintDiaTicket(DiaTicket Ticket) {
+	fmt.Println("DiaTicket:", DiaTicket.id, "total:", DiaTicket.total, "items:"+fmt.Sprint(DiaTicket.items))
+}
+
 const debugImagesPath string = "/images/debug/dia/"
 
 func humanDelay() {
@@ -52,6 +69,10 @@ func LoadCredentials(filePath string) (*Credentials, error) {
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&creds); err != nil {
 		return nil, fmt.Errorf("failed to decode credentials: %w", err)
+	}
+
+	if len(creds.Dia.Password) == 0 || len(creds.Dia.Username) ==0 {
+		return nil, fmt.Errorf("failed to extract credentials from file")
 	}
 
 	return &creds, nil
@@ -233,14 +254,17 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		fmt.Println("Login button not found")
 	}
 
-	//time.Sleep(10 * time.Minute)
 	return page, cleanup, nil
 }
 
 func GetTicketList(page *rod.Page, lastFound time.Time) map[string]time.Time {
-	ticketListLink, err := page.Element(".global-info__orders-link-content__button")
+	ticketLisFound, ticketListLink, err := page.Has(".global-info__orders-link-content__button")
 	if err != nil {
 		log.Printf("Error finding ticket list link: %v", err)
+		return nil
+	}
+	if !ticketLisFound {
+		log.Printf("ticket list link not found, cookies are outdated, PLEASE REFRESH")
 		return nil
 	}
 	ticketListLink.MustClick()
@@ -249,14 +273,14 @@ func GetTicketList(page *rod.Page, lastFound time.Time) map[string]time.Time {
 
 	page.MustScreenshot(debugImagesPath + "ticket_list.png")
 
-	tickets, err := page.Elements(".tickets__ticket-container__card")
+	ticketElements, err := page.Elements(".tickets__ticket-container__card")
 	if err != nil {
 		log.Printf("Error finding ticket list items: %v", err)
 		return nil
 	}
-
+	tickets := make([]Ticket, 0)
 	ticketDates := map[string]time.Time{}
-	for _, ticket := range tickets {
+	for _, ticket := range ticketElements {
 		text, _ := ticket.Text()
 		dateFromTicket, err := getDateFromTicket(text)
 		if err != nil {
@@ -265,23 +289,184 @@ func GetTicketList(page *rod.Page, lastFound time.Time) map[string]time.Time {
 		//fmt.Println(dateFromTicket)
 		if dateFromTicket.After(lastFound) {
 			ticketDates[text] = dateFromTicket
+			diaTicket := getTicketDetails(ticket, page, dateFromTicket)
+			tickets = append(tickets, diaTicket)
+			PrintDiaTicket(diaTicket)
 		}
 	}
 
 	return ticketDates
 }
 
+func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time) Ticket {
+	ticketBtnFound, ticketBtn, err := ticketElement.Has("[data-test-id='button-action']")
+	if err != nil {
+		log.Println("Cannot find ticket button, skipping")
+		return Ticket{}
+	}
+	if ticketBtnFound {
+		ticketBtn.Hover()
+		time.Sleep(time.Duration(300+rand.Intn(300)) * time.Millisecond)
+		ticketBtn.MustClick()
+
+		humanDelay()
+		ticketDebugImagePath := debugImagesPath + "ticket-" + date.Format("2-1-2006") + ".png"
+		fmt.Println(ticketDebugImagePath)
+		page.MustScreenshot(ticketDebugImagePath)
+		fmt.Println("✓ Ticket button clicked")
+	} else {
+		fmt.Println("Ticket button not found")
+	}
+
+	ticketId, err := page.MustElement(".ticket-detail-header__simplified-invoice").Text()
+	if err != nil {
+		log.Println("Cannot find ticket id, skipping")
+		return Ticket{}
+	}
+	ticketId = strings.Replace(ticketId, "Factura simplificada Nº ", "", 1)
+
+	ticketTotalStr, err := page.MustElement("[data-test-id='ticket-summary-total-final-amount-number']").Text()
+	ticketTotal := utils.ParsePrice(ticketTotalStr)
+
+	items, err := getItemList(page)
+
+	if !ticketIsValid(ticketTotal, items){
+		log.Println("Ticket price does not match up, discarding")
+		return Ticket{}
+	}
+
+	return Ticket{id: ticketId, total: ticketTotal, items: items}
+}
+
+func ticketIsValid(total float64, items []Item) bool {
+	itemsTotal := 0.0
+
+	for _, item := range items {
+		itemsTotal += item.amount * item.price
+	}
+
+	return utils.FloatsEqual(total, utils.ToFixed(itemsTotal, 2))
+}
+
 func getDateFromTicket(ticketString string) (content time.Time, err error) {
 	textLines := strings.Split(ticketString, "\n")
-	if len(textLines) < 1 || len(textLines[0]) == 0 {
-		return time.Unix(0, 0), fmt.Errorf("ticket string has no lines")
+	if len(textLines) <= 1 {
+		return time.Unix(0, 0), fmt.Errorf("ticket string doesn't have enough lines")
 	}
-	layout := "2/1/2006"
+	layout := "02/01/2006"
 
-	extractedDate, err := time.Parse(layout, textLines[1])
+	extractedDate, err := time.Parse(layout, strings.TrimSpace(textLines[1]))
 	if err != nil {
 		fmt.Println("Error parsing date:", err)
 		return
 	}
 	return extractedDate, nil
+}
+
+func getItemList(page *rod.Page) ([]Item, error) {
+	rows, err := page.Elements("[data-test-id='ticket-products-product']")
+	if err != nil {
+		log.Println("Unable to find item row element")
+		return nil, err
+	}
+	items := make([]Item, 0)
+
+	for i, row := range rows {
+		itemName := getItemName(row)
+		itemQty := getItemQty(row)
+		pricePerUnit := getPricePerUnit(row, i)
+		itemTotalFound := getItemTotal(row)
+		totalCorrect := isTotalCorrect(itemQty, pricePerUnit, itemTotalFound)
+		if !totalCorrect {
+			log.Println("Item total not correct, discarding item")
+			continue
+		}
+		itemDiscount := getDiscount(row)
+		if itemDiscount < 0 {
+			// Apply discount shared between units
+			pricePerUnit = pricePerUnit - itemDiscount/itemQty
+		}
+
+		fmt.Println(itemName, itemQty, pricePerUnit, totalCorrect, itemDiscount)
+		items = append(items, Item{name: itemName, amount: itemQty, price: pricePerUnit})
+	}
+
+	return items, nil
+}
+
+func getItemName(element *rod.Element) string {
+	itemName, err := element.MustElement("[data-test-id='ticket-products-product-name']").Text()
+	if err != nil {
+		log.Println("Unable to find item name element")
+		return ""
+	}
+	return itemName
+}
+
+func getItemQty(element *rod.Element) float64 {
+	qtyStr := ""
+	itemQtyFound, itemQty, err := element.Has("[data-test-id='ticket-products-product-quantity']")
+	if err != nil {
+		log.Println("Unable to find item quantity element")
+	}
+	if itemQtyFound {
+		qtyStr, err = itemQty.Text()
+		if err != nil {
+			log.Println("Unable to find item quantity element")
+			return 0.0
+		}
+	} else {
+		log.Println("Item quantity element not found, searching for weight")
+		weightFound, weightElement, err := element.Has("[data-test-id='ticket-products-product-weight']")
+		if err != nil {
+			log.Println("Unable to find item weight element")
+			return 0.0
+		}
+		if weightFound {
+			qtyStr, _ = weightElement.Text()
+		}
+	}
+	parsedQty := utils.ParseQty(qtyStr)
+	return parsedQty
+}
+
+func getPricePerUnit(element *rod.Element, index int) float64 {
+	itemPricePerUnit, err := element.MustElement("[data-test-id='ticket-products-product-price-per-unit-" + strconv.Itoa(index) + "']").Text()
+	if err != nil {
+		log.Println("Unable to find item price per unit element")
+	}
+	parsedPrice := utils.ParsePrice(itemPricePerUnit)
+	return parsedPrice
+}
+
+func getItemTotal(element *rod.Element) float64 {
+	itemTotal, err := element.MustElement("[data-test-id='ticket-products-product-amount']").Text()
+	if err != nil {
+		log.Println("Unable to find item amount element")
+	}
+	parsedTotal:= utils.ParsePrice(itemTotal)
+	return parsedTotal
+}
+
+func getDiscount(element *rod.Element) float64 {
+	hasDiscount, itemDiscount, err := element.Has("[data-test-id='ticket-products-product-promotion-amount']")
+	if err != nil {
+		log.Println("Unable to find item discount element")
+	}
+	if !hasDiscount {
+		log.Println("Item discount not found")
+		return 0.0
+	}
+	parsedDiscountStr, err := itemDiscount.Text()
+	if err != nil {
+		log.Println("Unable to get discount from item discount")
+		return 0.0
+	}
+	parsedDiscount:= utils.ParsePrice(parsedDiscountStr)
+	return parsedDiscount
+
+}
+
+func isTotalCorrect(qty float64, pricePer float64, totalFound float64) bool {
+	return utils.FloatsEqual(utils.ToFixed(qty*pricePer, 2), totalFound)
 }

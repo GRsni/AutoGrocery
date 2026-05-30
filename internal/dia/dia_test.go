@@ -3,11 +3,25 @@ package dia
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 // Helper to create temporary file
 func createTempFile(content string) (*os.File, error) {
 	tmpFile, err := os.CreateTemp("", "dia-test-*.json")
+	if err != nil {
+		return nil, err
+	}
+	defer tmpFile.Close()
+	if _, err := tmpFile.WriteString(content); err != nil {
+		return nil, err
+	}
+	return tmpFile, nil
+}
+
+// Helper to create temporary cookies file
+func createTempCookiesFile(content string) (*os.File, error) {
+	tmpFile, err := os.CreateTemp("", "cookies-test-*.txt")
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +82,26 @@ func TestLoadCredentials_MissingFile(t *testing.T) {
 	}
 }
 
+func TestLoadCredentials_EmptyFields(t *testing.T) {
+	content := `{
+		"dia": {
+			"username": "",
+			"password": ""
+		}
+	}`
+
+	tmpFile, err := createTempFile(content)
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	_, err = LoadCredentials(tmpFile.Name())
+	if err == nil {
+		t.Fatalf("LoadCredentials didnt throw error")
+	}
+}
+
 func TestLoadSessionFromCookies(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -89,20 +123,25 @@ func TestLoadSessionFromCookies(t *testing.T) {
 			input:    "example.com\tTRUE\t/\t\n1609459200.123\tusername\tsecret",
 			expected: 0, // Skips the malformed line
 		},
+		{
+			name:     "Multiple Valid Cookies",
+			input:    "site.com\tTRUE\t/\tFALSE\t1609459200.123\tsession\tabc\nother.com\tTRUE\t/\tFALSE\t1609459201.123\tuser\txyz",
+			expected: 2,
+		},
+		{
+			name:     "Cookies with Special Characters in Value",
+			input:    "site.com\tTRUE\t/\tFALSE\t1609459200.123\taccess_token\tBearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+			expected: 1,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpFile, err := os.CreateTemp("", "cookies_*.txt")
+			tmpFile, err := createTempCookiesFile(tt.input + "\n")
 			if err != nil {
 				t.Fatalf("Failed to create temp file: %v", err)
 			}
 			defer os.Remove(tmpFile.Name())
-
-			_, err = tmpFile.WriteString(tt.input + "\n")
-			if err != nil {
-				t.Fatalf("Failed to write temp file: %v", err)
-			}
 
 			cookies, err := LoadSessionFromCookies(tmpFile.Name())
 			if err != nil {
@@ -120,6 +159,7 @@ func TestGetDateFromTicket(t *testing.T) {
 		name      string
 		input     string
 		expectErr bool
+		expected  time.Time // Only useful if parsing succeeds
 	}{
 		{
 			name:      "Valid Date",
@@ -136,17 +176,160 @@ func TestGetDateFromTicket(t *testing.T) {
 			input:     "",
 			expectErr: true,
 		},
+		{
+			name:      "Missing Newline (Header only)",
+			input:     "Just Header",
+			expectErr: true,
+		},
+		{
+			name:      "Valid Date with Spaces",
+			input:     "Ticket Details\n 15/02/2023 \nEnd",
+			expectErr: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := getDateFromTicket(tt.input)
+			result, err := getDateFromTicket(tt.input)
+
 			if tt.expectErr && err == nil {
 				t.Error("Expected error but got nil")
 			}
 			if !tt.expectErr && err != nil {
 				t.Errorf("Unexpected error: %v", err)
 			}
+
+			// Optional: Check if the date is reasonable (year > 0) for valid cases
+			if !tt.expectErr && !result.IsZero() {
+				if result.Year() < 2000 || result.Year() > time.Now().Year()+50 {
+					t.Errorf("Date seems invalid: %v", result)
+				}
+			}
 		})
+	}
+}
+
+// Tests for Ticket Validation Logic (Pure Math)
+func TestTicketIsValid(t *testing.T) {
+	tests := []struct {
+		name     string
+		total    float64
+		items    []Item
+		expected bool
+	}{
+		{
+			name:  "Valid Match",
+			total: 51.25,
+			items: []Item{
+				{name: "Apple", amount: 5, price: 10.25},
+			},
+			expected: true,
+		},
+		{
+			name:  "Invalid Mismatch",
+			total: 50.50,
+			items: []Item{
+				{name: "Apple", amount: 3, price: 10.25}, // 3 * 10.25 = 30.75
+			},
+			expected: false,
+		},
+		{
+			name:     "Empty Items List",
+			total:    0.00,
+			items:    []Item{},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ticketIsValid(tt.total, tt.items)
+			if result != tt.expected {
+				t.Errorf("Expected %v for total %.2f and items %v, got %v",
+					tt.expected, tt.total, tt.items, result)
+			}
+		})
+	}
+}
+
+// Tests for Total Correct Logic (Math Helper)
+func TestIsTotalCorrect(t *testing.T) {
+	tests := []struct {
+		name     string
+		qty      float64
+		price    float64
+		total    float64
+		expected bool
+	}{
+		{
+			name:     "Exact Match",
+			qty:      2.0,
+			price:    10.0,
+			total:    20.0,
+			expected: true,
+		},
+		{
+			name:     "Mismatch",
+			qty:      2.0,
+			price:    10.0,
+			total:    21.0,
+			expected: false,
+		},
+		{
+			name:     "Zero Values",
+			qty:      0.0,
+			price:    10.0,
+			total:    0.0,
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isTotalCorrect(tt.qty, tt.price, tt.total)
+			if result != tt.expected {
+				t.Errorf("isTotalCorrect(%v, %v, %v) = %v, expected %v",
+					tt.qty, tt.price, tt.total, result, tt.expected)
+			}
+		})
+	}
+}
+
+// Tests for Cookie Parsing Logic (Mocking rod elements is hard, so we test the parsing logic directly)
+func TestLoadCredentials_MissingDiaKey(t *testing.T) {
+	content := `{
+		"username": "test@example.com",
+		"password": "SecurePass123"
+	}`
+
+	tmpFile, err := createTempFile(content)
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	_, err = LoadCredentials(tmpFile.Name())
+	// Should fail because the struct expects a 'dia' wrapper
+	if err == nil {
+		t.Error("Expected error for missing 'dia' key, but got nil")
+	}
+}
+
+func TestLoadCredentials_MissingPasswordKey(t *testing.T) {
+	content := `{
+		"dia": {
+			"username": "test@example.com"
+		}
+	}`
+
+	tmpFile, err := createTempFile(content)
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	_, err = LoadCredentials(tmpFile.Name())
+	if err == nil {
+		t.Fatalf("LoadCredentials did not throw error")
 	}
 }
