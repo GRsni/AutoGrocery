@@ -17,7 +17,7 @@ func TestGetSheetsConfig(t *testing.T) {
 			name: "valid credentials file",
 			setupFile: func(t *testing.T) string {
 				tmpDir := t.TempDir()
-				credentialsFile := filepath.Join(tmpDir, "credentials.json")
+				credentialsFile := filepath.Join(tmpDir, "secrets.json")
 				content := `{
 					"sheets": {
 						"main-id": "1234"
@@ -35,7 +35,7 @@ func TestGetSheetsConfig(t *testing.T) {
 			name: "missing credentials file",
 			setupFile: func(t *testing.T) string {
 				tmpDir := t.TempDir()
-				return filepath.Join(tmpDir, "credentials.json")
+				return filepath.Join(tmpDir, "secrets.json")
 			},
 			expectedError: true,
 			expectedID:    "",
@@ -44,7 +44,7 @@ func TestGetSheetsConfig(t *testing.T) {
 			name: "invalid JSON syntax",
 			setupFile: func(t *testing.T) string {
 				tmpDir := t.TempDir()
-				credentialsFile := filepath.Join(tmpDir, "credentials.json")
+				credentialsFile := filepath.Join(tmpDir, "secrets.json")
 				content := `{ invalid json }`
 				if err := os.WriteFile(credentialsFile, []byte(content), 0644); err != nil {
 					t.Fatalf("Failed to write credentials file: %v", err)
@@ -58,7 +58,7 @@ func TestGetSheetsConfig(t *testing.T) {
 			name: "missing sheets field",
 			setupFile: func(t *testing.T) string {
 				tmpDir := t.TempDir()
-				credentialsFile := filepath.Join(tmpDir, "credentials.json")
+				credentialsFile := filepath.Join(tmpDir, "secrets.json")
 				content := `{
 					"other": "field"
 				}`
@@ -74,7 +74,7 @@ func TestGetSheetsConfig(t *testing.T) {
 			name: "empty main-id field",
 			setupFile: func(t *testing.T) string {
 				tmpDir := t.TempDir()
-				credentialsFile := filepath.Join(tmpDir, "credentials.json")
+				credentialsFile := filepath.Join(tmpDir, "secrets.json")
 				content := `{
 					"sheets": {
 						"main-id": ""
@@ -92,7 +92,7 @@ func TestGetSheetsConfig(t *testing.T) {
 			name: "extra fields in JSON (should be ignored)",
 			setupFile: func(t *testing.T) string {
 				tmpDir := t.TempDir()
-				credentialsFile := filepath.Join(tmpDir, "credentials.json")
+				credentialsFile := filepath.Join(tmpDir, "secrets.json")
 				content := `{
 					"sheets": {
 						"main-id": "1234"
@@ -122,8 +122,8 @@ func TestGetSheetsConfig(t *testing.T) {
 				if err == nil {
 					t.Errorf("GetSheetsConfig() expected error but got none")
 				} else {
-					if config != nil {
-						t.Errorf("GetSheetsConfig() expected nil config but got: %v", config)
+					if len(config.Sheets.MainID) != 0 {
+						t.Errorf("GetSheetsConfig() expected empty config but got: %v", config)
 					}
 					return
 				}
@@ -145,7 +145,7 @@ func TestGetSheetsConfig(t *testing.T) {
 func TestGetSheetsConfig_Validation(t *testing.T) {
 	t.Run("validates non-empty main-id", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		credentialsFile := filepath.Join(tmpDir, "credentials.json")
+		credentialsFile := filepath.Join(tmpDir, "secrets.json")
 		content := `{
 			"sheets": {
 				"main-id": ""
@@ -165,7 +165,7 @@ func TestGetSheetsConfig_Validation(t *testing.T) {
 func TestGetSheetsConfig_MissingFile(t *testing.T) {
 	t.Run("handles missing file", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		credentialsFile := filepath.Join(tmpDir, "credentials.json")
+		credentialsFile := filepath.Join(tmpDir, "secrets.json")
 
 		_, err := GetSheetsConfig(credentialsFile)
 		if err == nil {

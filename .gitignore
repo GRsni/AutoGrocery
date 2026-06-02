@@ -43,7 +43,6 @@ config/credentials/*.txt
 # OS generated files
 # ============================================
 Thumbs.db
-.DS_Store
 Desktop.ini
 ehthumbs.db
 ehthumbs.idx
@@ -82,20 +81,9 @@ External Libraries/
 # ============================================
 # Logs and temporary data
 # ============================================
-*.log
-*.tmp
 *.temp
 cache/
 data/
-
-
-# macOS
-.DS_Store
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
 
 # Linux
 .mypy_cache/

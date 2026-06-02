@@ -3,7 +3,7 @@ package carrefour
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -52,43 +52,43 @@ func LoginToCarrefour(creds *Credentials) {
 
 	page := browser.MustPage("https://www.carrefour.es/").MustWaitStable()
 
-	log.Println("✓ Navigated to Carrefour homepage")
+	slog.Info("✓ Navigated to Carrefour homepage")
 
 	found, el, err := page.Has(".account-menu")
 	if err != nil {
-		log.Println("Cannot find element:", "Account menu button, skipping")
+		slog.Info("Cannot find element Account menu button, skipping")
 		return
 	}
 	if found {
 		el.MustClick()
 		page.MustWaitStable().MustScreenshot("images/debug/carrefour/menu.png")
-		fmt.Println("✓ Account menu clicked")
+		slog.Debug("✓ Account menu clicked")
 	} else {
-		fmt.Println("Account menu not found")
+		slog.Debug("Account menu not found")
 	}
 
 	//page.MustElement(".account-modal__login").MustClick().MustWaitStable()
 	found, el, err = page.Has(".account-modal__login")
 	if err != nil {
-		log.Println("Cannot find element:", "Account menu button, skipping")
+		slog.Info("Cannot find element Account menu button, skipping")
 		return
 	}
 	if found {
 		el.MustClick()
 		page.MustWaitStable().MustScreenshot("images/debug/carrefour/login.png")
-		fmt.Println("✓ Login menu clicked")
+		slog.Debug("✓ Login menu clicked")
 	} else {
-		fmt.Println("Login button not found")
+		slog.Debug("Login button not found")
 	}
 
-	fmt.Println("✓ Login page open")
+	slog.Info("✓ Login page open")
 
 	page.Timeout(7 * time.Second)
 
 	page.Mouse.MustMoveTo(1000, 600)
 	page.Mouse.MustClick("left")
 
-	fmt.Println("✓ Cookies modal dismissed")
+	slog.Info("✓ Cookies modal dismissed")
 
 	// Get the iframe and switch to its page context
 	frame := page.MustElement("iframe[src*='/access']")

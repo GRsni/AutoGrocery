@@ -19,7 +19,7 @@ const (
 	Diciembre  SpanishMonth = "Diciembre"
 )
 
-// spanishMonths is indexed by time.Month value (1 = January .. 12 = December).
+// spanishMonths is indexed by time.Month value (1 = January, 12 = December).
 // Index 0 is intentionally empty so the slice aligns with time.Month values.
 var spanishMonths = [...]SpanishMonth{
 	"",

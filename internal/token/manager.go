@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 
 	"golang.org/x/oauth2"
 )
 
-// Retrieve a token, saves the token, then returns the generated client.
+// GetClient retrieves a token, saves the token, then returns the generated client.
 func GetClient(config *oauth2.Config, tokFile string) *http.Client {
 	// The file token.json stores the user's access and refresh tokens and is
 	// created automatically when the authorization flow completes for the first
@@ -66,7 +67,7 @@ func saveToken(path string, token *oauth2.Token) {
 
 	err = json.NewEncoder(f).Encode(token)
 	if err != nil {
-		log.Printf("Failed to encode token: %v", err) // ✅ Added logging
+		slog.Info("Failed to encode token", "ERROR", err)
 		return
 	}
 }

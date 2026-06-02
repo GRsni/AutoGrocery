@@ -124,7 +124,7 @@ For supermarket scraping, cookies are managed in:
 
 ## ⚠️ Security Notes
 
-- **Sensitive Credentials**: Contains OAuth2 credentials in `config/credentials/credentials.json` -
+- **Sensitive Credentials**: Contains OAuth2 credentials in `config/credentials/secrets.json` -
   keep it secure and never commit to version control
 - **Token Storage**: Stores authentication tokens in `config/credentials/token.json` - restrict file
   permissions (chmod 600)
