@@ -53,7 +53,17 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 
 	tok := &oauth2.Token{}
 	err = json.NewDecoder(f).Decode(tok)
-	return tok, err
+
+	if err != nil {
+		return tok, err
+	}
+
+	// Check if AccessToken is missing or empty
+	if tok.AccessToken == "" {
+		return tok, fmt.Errorf("missing or empty AccessToken in token file")
+	}
+
+	return tok, nil
 }
 
 // Saves a token to a file path.
