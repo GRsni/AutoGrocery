@@ -235,7 +235,8 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		loginBtn.MustClick()
 
 		humanDelay()
-		page.MustWaitIdle().MustScreenshot(debugImagesPath + "login.png")
+		page.MustWaitIdle()
+		//page.MustScreenshot(debugImagesPath + "login.png")
 		slog.Debug("✓ Login button clicked")
 	} else {
 		slog.Debug("Login button not found")
@@ -258,7 +259,7 @@ func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
 	humanDelay()
 	page.MustWaitLoad().MustWaitIdle()
 
-	page.MustScreenshot(debugImagesPath + "ticket_list.png")
+	//page.MustScreenshot(debugImagesPath + "ticket_list.png")
 
 	ticketElements, err := page.Elements(".tickets__ticket-container__card")
 	if err != nil {
@@ -294,13 +295,13 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 	}
 	if ticketBtnFound {
 		ticketBtn.Hover()
-		time.Sleep(time.Duration(300+rand.Intn(300)) * time.Millisecond)
+		humanDelay()
 		ticketBtn.MustClick()
 
 		humanDelay()
 		ticketDebugImagePath := debugImagesPath + "ticket-" + date.Format("2-1-2006") + ".png"
 		fmt.Println(ticketDebugImagePath)
-		page.MustScreenshot(ticketDebugImagePath)
+		//page.MustScreenshot(ticketDebugImagePath)
 		slog.Debug("✓ Ticket button clicked")
 	} else {
 		slog.Debug("Ticket button not found")

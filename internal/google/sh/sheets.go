@@ -17,13 +17,13 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
-type Ticket struct {
+type Entry struct {
 	Date     time.Time
 	shop     string
 	FirstRow int
 }
 
-func GroceryTicketToString(ticket Ticket) string {
+func EntryToStr(ticket Entry) string {
 	formattedDate := ticket.Date.Format(constants.TicketDateFormat)
 	return fmt.Sprintf("Grocery Ticket: Shop=%s, Date=%s\n", ticket.shop, formattedDate)
 }
@@ -101,19 +101,19 @@ func ReadFromSheet(manager Manager, readRange string) *sheets.ValueRange {
 	return resp
 }
 
-func GetSheetTicketList(manager Manager, cellRange string) ([]Ticket, error) {
+func GetSheetTicketList(manager Manager, cellRange string) ([]Entry, error) {
 	readRange := fmt.Sprintf("%s!%s", manager.PageName, cellRange)
 
 	resp := ReadFromSheet(manager, readRange)
 
-	tickets := make([]Ticket, 0)
+	tickets := make([]Entry, 0)
 	if len(resp.Values) == 0 {
 		slog.Info("No data found in searched sheets range.")
 	} else {
 		for i, row := range resp.Values {
 			if len(row) >= 2 {
 				date := utils.StringToDate(utils.ExtractString(row[0]))
-				ticket := Ticket{Date: date, shop: utils.ExtractString(row[1]), FirstRow: i}
+				ticket := Entry{Date: date, shop: utils.ExtractString(row[1]), FirstRow: i}
 				tickets = append(tickets, ticket)
 			}
 		}
@@ -134,13 +134,13 @@ func GetLastWrittenRowIndex(manager Manager) int {
 	return lastRow
 }
 
-func GetLastTicketForShop(tickets []Ticket, shopName string) (Ticket, error) {
+func GetLastTicketForShop(tickets []Entry, shopName string) (Entry, error) {
 	for in := len(tickets) - 1; in >= 0; in-- {
 		if tickets[in].shop == shopName {
 			return tickets[in], nil
 		}
 	}
-	return Ticket{}, fmt.Errorf("no ticket found for shop %s", shopName)
+	return Entry{}, fmt.Errorf("no ticket found for shop %s", shopName)
 }
 
 func WriteToSheet(manager Manager, valueRange *sheets.ValueRange, firstRow int) int {
