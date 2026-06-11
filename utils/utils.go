@@ -24,25 +24,31 @@ func ToFixed(num float64, precision int) float64 {
 	return float64(round(num*output)) / output
 }
 
-func StringToFloat(str string) float64 {
+func StringToFloat(str string, precision int) float64 {
 	parsed, err := strconv.ParseFloat(strings.TrimSpace(strings.Replace(str, ",", ".", -1)), 32)
 	if err != nil {
 		slog.Debug("Unable to parse float from input string: " + str)
 		return 0
 	}
-	return ToFixed(parsed, 2)
+	return ToFixed(parsed, precision)
 }
 
 func ParseQty(qty string) float64 {
 	strippedQty := strings.Replace(qty, "ud", "", -1)
 	strippedQty = strings.Replace(strippedQty, "kg", "", -1)
-	return StringToFloat(strippedQty)
+	return StringToFloat(strippedQty, 2)
+}
+
+func ParseQtyWithPrecision(qty string, precision int) float64 {
+	strippedQty := strings.Replace(qty, "ud", "", -1)
+	strippedQty = strings.Replace(strippedQty, "kg", "", -1)
+	return StringToFloat(strippedQty, precision)
 }
 
 func ParsePrice(price string) float64 {
 	strippedPrice := strings.Replace(price, "€", "", -1)
 	strippedPrice = strings.Replace(strippedPrice, "/kg", "", -1)
-	return StringToFloat(strippedPrice)
+	return StringToFloat(strippedPrice, 2)
 }
 
 func ExtractString(val any) string {
@@ -58,11 +64,11 @@ func ExtractString(val any) string {
 	}
 }
 
-func GetDateFromCell(dateCell string) time.Time {
-	date, err := time.Parse("02/01/2006", dateCell)
+func StringToDate(input string) time.Time {
+	date, err := time.Parse("02/01/2006", input)
 	if err != nil {
-		slog.Info("Failed to parse date cell with default format, trying compressed format", "ERROR", err)
-		date, _ = time.Parse("02/1/2006", dateCell)
+		slog.Info("Failed to parse date with default format, trying compressed format", "WARN", err)
+		date, _ = time.Parse("02/1/2006", input)
 	}
 	return date
 }

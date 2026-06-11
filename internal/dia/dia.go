@@ -1,6 +1,8 @@
 package dia
 
 import (
+	"autoGrocery/internal"
+	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"bufio"
 	"encoding/json"
@@ -19,7 +21,6 @@ import (
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/go-rod/stealth"
-	"google.golang.org/api/sheets/v4"
 )
 
 type Credentials struct {
@@ -36,23 +37,6 @@ type Cookie struct {
 	Path   string  `json:"path"`
 	Secure bool    `json:"secure"`
 	Expiry float64 `json:"expirationDate"`
-}
-
-type Item struct {
-	name   string
-	amount float64
-	price  float64
-}
-
-type Ticket struct {
-	items []Item
-	id    string
-	total float64
-	date  time.Time
-}
-
-func TicketToStr(DiaTicket Ticket) string {
-	return fmt.Sprintf("DiaTicket: %s, total: %f, items: %s", DiaTicket.id, DiaTicket.total, fmt.Sprint(DiaTicket.items))
 }
 
 const debugImagesPath string = "/images/debug/dia/"
@@ -260,7 +244,7 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 	return page, cleanup, nil
 }
 
-func GetTicketList(page *rod.Page, lastFound time.Time) []Ticket {
+func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
 	ticketLisFound, ticketListLink, err := page.Has(".global-info__orders-link-content__button")
 	if err != nil {
 		slog.Debug("Error finding ticket list link", "ERROR", err)
@@ -281,33 +265,32 @@ func GetTicketList(page *rod.Page, lastFound time.Time) []Ticket {
 		slog.Debug("Error finding ticket list items", "ERROR", err)
 		return nil
 	}
-	tickets := make([]Ticket, 0)
+	tickets := make([]internal.Ticket, 0)
 	for _, ticket := range ticketElements {
 		text, _ := ticket.Text()
 		dateFromTicket, err := getDateFromTicket(text)
 		if err != nil {
 			return nil
 		}
-		//fmt.Println(dateFromTicket)
 		if dateFromTicket.After(lastFound) {
 			diaTicket := getTicketDetails(ticket, page, dateFromTicket)
 			tickets = append(tickets, diaTicket)
-			slog.Debug(TicketToStr(diaTicket))
+			slog.Debug(diaTicket.TicketToStr(constants.DIA))
 		}
 	}
 
 	sort.SliceStable(tickets, func(i, j int) bool {
-		return tickets[i].date.Before(tickets[j].date)
+		return tickets[i].Date.Before(tickets[j].Date)
 	})
 
 	return tickets
 }
 
-func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time) Ticket {
+func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time) internal.Ticket {
 	ticketBtnFound, ticketBtn, err := ticketElement.Has("[data-test-id='button-action']")
 	if err != nil {
 		slog.Debug("Cannot find ticket button, skipping", "ERROR", err)
-		return Ticket{}
+		return internal.Ticket{}
 	}
 	if ticketBtnFound {
 		ticketBtn.Hover()
@@ -326,7 +309,7 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 	ticketId, err := page.MustElement(".ticket-detail-header__simplified-invoice").Text()
 	if err != nil {
 		slog.Debug("Cannot find ticket id, skipping")
-		return Ticket{}
+		return internal.Ticket{}
 	}
 	ticketId = strings.Replace(ticketId, "Factura simplificada Nº ", "", 1)
 
@@ -336,15 +319,15 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 	items, err := getItemList(page)
 
 	if !ticketIsValid(ticketTotal, items) {
-		slog.Debug("Ticket price does not match up, discarding")
-		return Ticket{}
+		slog.Warn("Ticket price does not match up, discarding")
+		return internal.Ticket{}
 	}
 
 	// Close ticket
 	ticketClose, err := page.Element("[data-test-id='ticket-detail-modal-cross']")
 	if err != nil {
 		slog.Debug("Cannot find ticket button, skipping")
-		return Ticket{}
+		return internal.Ticket{}
 	}
 	ticketClose.Hover()
 	time.Sleep(time.Duration(300+rand.Intn(300)) * time.Millisecond)
@@ -352,14 +335,14 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 
 	humanDelay()
 
-	return Ticket{id: ticketId, total: ticketTotal, items: items, date: date}
+	return internal.Ticket{Id: ticketId, Total: ticketTotal, Items: items, Date: date}
 }
 
-func ticketIsValid(total float64, items []Item) bool {
+func ticketIsValid(total float64, items []internal.Item) bool {
 	itemsTotal := 0.0
 
 	for _, item := range items {
-		itemsTotal += item.amount * item.price
+		itemsTotal += item.Amount * item.Price
 	}
 
 	return utils.FloatsEqual(total, utils.ToFixed(itemsTotal, 2))
@@ -370,9 +353,7 @@ func getDateFromTicket(ticketString string) (content time.Time, err error) {
 	if len(textLines) <= 1 {
 		return time.Unix(0, 0), fmt.Errorf("ticket string doesn't have enough lines")
 	}
-	layout := "02/01/2006"
-
-	extractedDate, err := time.Parse(layout, strings.TrimSpace(textLines[1]))
+	extractedDate, err := time.Parse("02/01/2006", strings.TrimSpace(textLines[1]))
 	if err != nil {
 		slog.Debug("Error parsing date", "ERROR", err)
 		return
@@ -380,13 +361,13 @@ func getDateFromTicket(ticketString string) (content time.Time, err error) {
 	return extractedDate, nil
 }
 
-func getItemList(page *rod.Page) ([]Item, error) {
+func getItemList(page *rod.Page) ([]internal.Item, error) {
 	rows, err := page.Elements("[data-test-id='ticket-products-product']")
 	if err != nil {
 		slog.Debug("Unable to find item row element", "ERROR", err)
 		return nil, err
 	}
-	items := make([]Item, 0)
+	items := make([]internal.Item, 0)
 
 	for i, row := range rows {
 		itemName := getItemName(row)
@@ -405,7 +386,7 @@ func getItemList(page *rod.Page) ([]Item, error) {
 		}
 
 		//fmt.Println(itemName, itemQty, pricePerUnit, totalCorrect, itemDiscount)
-		items = append(items, Item{name: itemName, amount: itemQty, price: pricePerUnit})
+		items = append(items, internal.Item{Name: itemName, Amount: itemQty, Price: pricePerUnit})
 	}
 
 	return items, nil
@@ -488,19 +469,4 @@ func getDiscount(element *rod.Element) float64 {
 
 func isTotalCorrect(qty float64, pricePer float64, totalFound float64) bool {
 	return utils.FloatsEqual(utils.ToFixed(qty*pricePer, 2), totalFound)
-}
-
-func ToValueRange(ticket Ticket) *sheets.ValueRange {
-	var values [][]any
-
-	for _, item := range ticket.items {
-		row := []any{"", "", item.name, item.amount, item.price}
-		values = append(values, row)
-	}
-	values[0][0] = ticket.date.Format("02/01/2006")
-	values[0][1] = "DIA"
-
-	valRange := sheets.ValueRange{MajorDimension: "ROWS", Values: values}
-
-	return &valRange
 }

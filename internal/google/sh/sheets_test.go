@@ -1,4 +1,4 @@
-package sheets_handler
+package sh
 
 import (
 	"os"

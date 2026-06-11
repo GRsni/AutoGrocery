@@ -1,4 +1,4 @@
-package sheets_handler
+package sh
 
 import (
 	"autoGrocery/internal/token"
@@ -12,37 +12,37 @@ import (
 	"os"
 	"time"
 
-	"golang.org/x/oauth2/google"
+	"golang.org/x/oauth2"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )
 
-type SheetsTicket struct {
+type Ticket struct {
 	Date     time.Time
 	shop     string
 	FirstRow int
 }
 
-func GroceryTicketToString(ticket SheetsTicket) string {
+func GroceryTicketToString(ticket Ticket) string {
 	formattedDate := ticket.Date.Format(constants.TicketDateFormat)
 	return fmt.Sprintf("Grocery Ticket: Shop=%s, Date=%s\n", ticket.shop, formattedDate)
 }
 
-type SheetsConfig struct {
+type Config struct {
 	Sheets struct {
 		MainID string `json:"main-id"`
 	} `json:"sheets"`
 }
 
-type SheetsManager struct {
+type Manager struct {
 	Service  *sheets.Service
 	PageName string
-	config   SheetsConfig
+	config   Config
 	sheetId  int64
 }
 
-func GetSheetManager(ctx context.Context, tokFile string, credsFile string, sheetName string) SheetsManager {
-	sheetService, err := GetSheetService(ctx, tokFile, credsFile)
+func GetSheetManager(ctx context.Context, config *oauth2.Config, tokFile string, credsFile string, sheetName string) Manager {
+	sheetService, err := GetSheetService(ctx, config, tokFile)
 	if err != nil {
 		log.Fatalf("Unable to retrieve Sheets client: %v", err)
 	}
@@ -54,36 +54,26 @@ func GetSheetManager(ctx context.Context, tokFile string, credsFile string, shee
 
 	sheetId, _ := GetSheetID(sheetService, sheetsConfig.Sheets.MainID, sheetName)
 
-	return SheetsManager{Service: sheetService, config: sheetsConfig, sheetId: sheetId, PageName: sheetName}
+	return Manager{Service: sheetService, config: sheetsConfig, sheetId: sheetId, PageName: sheetName}
 }
 
-func GetSheetService(ctx context.Context, tokFile string, credsFile string) (*sheets.Service, error) {
-	b, err := os.ReadFile(credsFile)
-	if err != nil {
-		log.Fatalf("Unable to read client secret file: %v", err)
-	}
-	// If modifying these scopes, delete your previously saved token.json.
-	config, err := google.ConfigFromJSON(b, "https://www.googleapis.com/auth/spreadsheets")
-	if err != nil {
-		log.Fatalf("Unable to parse client secret file to config: %v", err)
-	}
+func GetSheetService(ctx context.Context, config *oauth2.Config, tokFile string) (*sheets.Service, error) {
 	client := token.GetClient(config, tokFile)
-
 	return sheets.NewService(ctx, option.WithHTTPClient(client))
 }
 
-func GetSheetsConfig(credentialsPath string) (SheetsConfig, error) {
+func GetSheetsConfig(credentialsPath string) (Config, error) {
 	b, err := os.ReadFile(credentialsPath)
 	if err != nil {
-		return SheetsConfig{}, fmt.Errorf("unable to read client secret file: %w", err)
+		return Config{}, fmt.Errorf("unable to read client secret file: %w", err)
 	}
-	var sheetsConfig SheetsConfig
+	var sheetsConfig Config
 	if err := json.Unmarshal(b, &sheetsConfig); err != nil {
 		slog.Info("Failed to unmarshal credentials config", "ERROR", err)
-		return SheetsConfig{}, err
+		return Config{}, err
 	}
 	if sheetsConfig.Sheets.MainID == "" {
-		return SheetsConfig{}, fmt.Errorf("main sheet ID is empty")
+		return Config{}, fmt.Errorf("main sheet ID is empty")
 	}
 	return sheetsConfig, nil
 }
@@ -103,7 +93,7 @@ func GetSheetID(service *sheets.Service, spreadsheetID string, sheetName string)
 	return 0, fmt.Errorf("sheet %q not found", sheetName)
 }
 
-func ReadFromSheet(manager SheetsManager, readRange string) *sheets.ValueRange {
+func ReadFromSheet(manager Manager, readRange string) *sheets.ValueRange {
 	resp, err := manager.Service.Spreadsheets.Values.Get(manager.config.Sheets.MainID, readRange).Do()
 	if err != nil {
 		log.Fatalf("Unable to retrieve data from sheet: %v", err)
@@ -111,19 +101,19 @@ func ReadFromSheet(manager SheetsManager, readRange string) *sheets.ValueRange {
 	return resp
 }
 
-func GetSheetTicketList(manager SheetsManager, cellRange string) ([]SheetsTicket, error) {
+func GetSheetTicketList(manager Manager, cellRange string) ([]Ticket, error) {
 	readRange := fmt.Sprintf("%s!%s", manager.PageName, cellRange)
 
 	resp := ReadFromSheet(manager, readRange)
 
-	tickets := make([]SheetsTicket, 0)
+	tickets := make([]Ticket, 0)
 	if len(resp.Values) == 0 {
 		slog.Info("No data found in searched sheets range.")
 	} else {
 		for i, row := range resp.Values {
 			if len(row) >= 2 {
-				date := utils.GetDateFromCell(utils.ExtractString(row[0]))
-				ticket := SheetsTicket{Date: date, shop: utils.ExtractString(row[1]), FirstRow: i}
+				date := utils.StringToDate(utils.ExtractString(row[0]))
+				ticket := Ticket{Date: date, shop: utils.ExtractString(row[1]), FirstRow: i}
 				tickets = append(tickets, ticket)
 			}
 		}
@@ -131,16 +121,29 @@ func GetSheetTicketList(manager SheetsManager, cellRange string) ([]SheetsTicket
 	return tickets, nil
 }
 
-func GetLastTicketForShop(tickets []SheetsTicket, shopName string) (SheetsTicket, error) {
+func GetLastWrittenRowIndex(manager Manager) int {
+	readRange := fmt.Sprintf("%s!E2:300", manager.PageName)
+	data := ReadFromSheet(manager, readRange)
+	var lastRow = 0
+	for i, row := range data.Values {
+		if len(row) > 1 && row[0].(string) == "TOTAL" && len(row[0].(string)) > 0 {
+			lastRow = i + 2
+		}
+	}
+
+	return lastRow
+}
+
+func GetLastTicketForShop(tickets []Ticket, shopName string) (Ticket, error) {
 	for in := len(tickets) - 1; in >= 0; in-- {
 		if tickets[in].shop == shopName {
 			return tickets[in], nil
 		}
 	}
-	return SheetsTicket{}, fmt.Errorf("no ticket found for shop %s", shopName)
+	return Ticket{}, fmt.Errorf("no ticket found for shop %s", shopName)
 }
 
-func WriteToSheet(manager SheetsManager, valueRange *sheets.ValueRange, firstRow int) int {
+func WriteToSheet(manager Manager, valueRange *sheets.ValueRange, firstRow int) int {
 	ticketItems := len(valueRange.Values)
 	fmt.Println(ticketItems)
 	writeRange := fmt.Sprintf("%s!A%d:F%d", manager.PageName, firstRow, ticketItems+firstRow+1)
@@ -156,7 +159,7 @@ func WriteToSheet(manager SheetsManager, valueRange *sheets.ValueRange, firstRow
 	return ticketItems + 1
 }
 
-func FormatTicketBlock(manager SheetsManager, firstRow int, ticketItems int) error {
+func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
 	totalRowIdx := int64(firstRow + ticketItems - 1)
 
 	// #cfe2f3 -> R:207 G:226 B:243 normalized to 0-1

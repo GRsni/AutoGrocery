@@ -143,7 +143,7 @@ Run tests to verify functionality:
 Tests are available for:
 
 - Token management (`internal/token/`)
-- Sheets handler (`internal/sheets_handler/`)
+- Sheets handler (`internal/google/`)
 - Dia integration (`internal/dia/`)
 
 ## 🤝 Contributing

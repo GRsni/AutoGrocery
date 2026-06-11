@@ -9,7 +9,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// TestTokenFromFile_Success tests successful token loading from a valid file
+// TestTokenFromFile_Success tests a successful token loading from a valid file
 func TestTokenFromFile_Success(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "token_test_*.json")
 	if err != nil {
@@ -40,7 +40,7 @@ func TestTokenFromFile_Success(t *testing.T) {
 	os.Remove(tmpFile.Name())
 }
 
-// TestTokenFromFile_FileNotFound tests error handling when file doesn't exist
+// TestTokenFromFile_FileNotFound tests error handling when the file doesn't exist
 func TestTokenFromFile_FileNotFound(t *testing.T) {
 	_, err := tokenFromFile("nonexistent_file.json")
 	if err == nil {
