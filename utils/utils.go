@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"autoGrocery/pkg/constants"
 	"fmt"
 	"log/slog"
 	"math"
@@ -65,7 +66,7 @@ func ExtractString(val any) string {
 }
 
 func StringToDate(input string) time.Time {
-	date, err := time.Parse("02/01/2006", input)
+	date, err := time.Parse(constants.TicketDateFormat, input)
 	if err != nil {
 		slog.Info("Failed to parse date with default format, trying compressed format", "WARN", err)
 		date, _ = time.Parse("02/1/2006", input)

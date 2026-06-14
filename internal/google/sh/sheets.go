@@ -13,19 +13,33 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/api/sheets/v4"
 )
 
 type Entry struct {
 	Date     time.Time
-	shop     string
+	Store    string
 	FirstRow int
 }
 
 func EntryToStr(ticket Entry) string {
 	formattedDate := ticket.Date.Format(constants.TicketDateFormat)
-	return fmt.Sprintf("Grocery Ticket: Shop=%s, Date=%s\n", ticket.shop, formattedDate)
+	return fmt.Sprintf("Grocery Ticket: Shop=%s, Date=%s\n", ticket.Store, formattedDate)
+}
+
+type ValuesGetCall interface {
+	Do(...googleapi.CallOption) (*sheets.ValueRange, error)
+}
+type ValuesUpdateCall interface {
+	ValueInputOption(string) ValuesUpdateCall
+	Do(...googleapi.CallOption) (*sheets.UpdateValuesResponse, error)
+}
+type SheetsAPI interface {
+	Get(spreadsheetID, readRange string) (*sheets.ValueRange, error)
+	Update(spreadsheetID, writeRange string, vr *sheets.ValueRange, inputOption string) (*sheets.UpdateValuesResponse, error)
+	BatchUpdate(spreadsheetID string, req *sheets.BatchUpdateSpreadsheetRequest) (*sheets.BatchUpdateSpreadsheetResponse, error)
 }
 
 type Config struct {
@@ -35,34 +49,48 @@ type Config struct {
 }
 
 type Manager struct {
-	Service  *sheets.Service
 	PageName string
 	config   Config
 	sheetId  int64
+	service  SheetsAPI
+}
+
+type realService struct{ svc *sheets.Service }
+
+func (r *realService) Get(id, rng string) (*sheets.ValueRange, error) {
+	return r.svc.Spreadsheets.Values.Get(id, rng).Do()
+}
+
+func (r *realService) Update(id, rng string, vr *sheets.ValueRange, inputOption string) (*sheets.UpdateValuesResponse, error) {
+	return r.svc.Spreadsheets.Values.Update(id, rng, vr).ValueInputOption(inputOption).Do()
+}
+
+func (r *realService) BatchUpdate(id string, req *sheets.BatchUpdateSpreadsheetRequest) (*sheets.BatchUpdateSpreadsheetResponse, error) {
+	return r.svc.Spreadsheets.BatchUpdate(id, req).Do()
 }
 
 func GetSheetManager(ctx context.Context, config *oauth2.Config, tokFile string, credsFile string, sheetName string) Manager {
-	sheetService, err := GetSheetService(ctx, config, tokFile)
+	sheetService, err := getSheetService(ctx, config, tokFile)
 	if err != nil {
 		log.Fatalf("Unable to retrieve Sheets client: %v", err)
 	}
 
-	sheetsConfig, err := GetSheetsConfig(credsFile)
+	sheetsConfig, err := getSheetsConfig(credsFile)
 	if err != nil {
 		log.Fatalf("Failed to get Sheets config: %v", err)
 	}
 
-	sheetId, _ := GetSheetID(sheetService, sheetsConfig.Sheets.MainID, sheetName)
+	sheetId, _ := getSheetID(sheetService, sheetsConfig.Sheets.MainID, sheetName)
 
-	return Manager{Service: sheetService, config: sheetsConfig, sheetId: sheetId, PageName: sheetName}
+	return Manager{config: sheetsConfig, sheetId: sheetId, PageName: sheetName, service: &realService{svc: sheetService}}
 }
 
-func GetSheetService(ctx context.Context, config *oauth2.Config, tokFile string) (*sheets.Service, error) {
+func getSheetService(ctx context.Context, config *oauth2.Config, tokFile string) (*sheets.Service, error) {
 	client := token.GetClient(config, tokFile)
 	return sheets.NewService(ctx, option.WithHTTPClient(client))
 }
 
-func GetSheetsConfig(credentialsPath string) (Config, error) {
+func getSheetsConfig(credentialsPath string) (Config, error) {
 	b, err := os.ReadFile(credentialsPath)
 	if err != nil {
 		return Config{}, fmt.Errorf("unable to read client secret file: %w", err)
@@ -78,7 +106,7 @@ func GetSheetsConfig(credentialsPath string) (Config, error) {
 	return sheetsConfig, nil
 }
 
-func GetSheetID(service *sheets.Service, spreadsheetID string, sheetName string) (int64, error) {
+func getSheetID(service *sheets.Service, spreadsheetID string, sheetName string) (int64, error) {
 	spreadsheet, err := service.Spreadsheets.Get(spreadsheetID).Do()
 	if err != nil {
 		return 0, fmt.Errorf("unable to get spreadsheet: %w", err)
@@ -93,18 +121,22 @@ func GetSheetID(service *sheets.Service, spreadsheetID string, sheetName string)
 	return 0, fmt.Errorf("sheet %q not found", sheetName)
 }
 
-func ReadFromSheet(manager Manager, readRange string) *sheets.ValueRange {
-	resp, err := manager.Service.Spreadsheets.Values.Get(manager.config.Sheets.MainID, readRange).Do()
+func ReadFromSheet(manager Manager, readRange string) (*sheets.ValueRange, error) {
+	resp, err := manager.service.Get(manager.config.Sheets.MainID, readRange)
 	if err != nil {
-		log.Fatalf("Unable to retrieve data from sheet: %v", err)
+		slog.Error("Unable to retrieve data from sheet", "ERROR", err)
+		return nil, err
 	}
-	return resp
+	return resp, nil
 }
 
 func GetSheetTicketList(manager Manager, cellRange string) ([]Entry, error) {
 	readRange := fmt.Sprintf("%s!%s", manager.PageName, cellRange)
 
-	resp := ReadFromSheet(manager, readRange)
+	resp, err := ReadFromSheet(manager, readRange)
+	if err != nil {
+		return nil, fmt.Errorf("got no data from sheet: %v", err)
+	}
 
 	tickets := make([]Entry, 0)
 	if len(resp.Values) == 0 {
@@ -113,7 +145,7 @@ func GetSheetTicketList(manager Manager, cellRange string) ([]Entry, error) {
 		for i, row := range resp.Values {
 			if len(row) >= 2 {
 				date := utils.StringToDate(utils.ExtractString(row[0]))
-				ticket := Entry{Date: date, shop: utils.ExtractString(row[1]), FirstRow: i}
+				ticket := Entry{Date: date, Store: utils.ExtractString(row[1]), FirstRow: i}
 				tickets = append(tickets, ticket)
 			}
 		}
@@ -123,8 +155,11 @@ func GetSheetTicketList(manager Manager, cellRange string) ([]Entry, error) {
 
 func GetLastWrittenRowIndex(manager Manager) int {
 	readRange := fmt.Sprintf("%s!E2:300", manager.PageName)
-	data := ReadFromSheet(manager, readRange)
-	var lastRow = 0
+	data, err := ReadFromSheet(manager, readRange)
+	if err != nil {
+		slog.Error("Got no data from the sheet", "ERROR", err)
+	}
+	var lastRow = 1
 	for i, row := range data.Values {
 		if len(row) > 1 && row[0].(string) == "TOTAL" && len(row[0].(string)) > 0 {
 			lastRow = i + 2
@@ -134,28 +169,31 @@ func GetLastWrittenRowIndex(manager Manager) int {
 	return lastRow
 }
 
-func GetLastTicketForShop(tickets []Entry, shopName string) (Entry, error) {
+func GetLastEntryForStore(tickets []Entry, shopName string) Entry {
 	for in := len(tickets) - 1; in >= 0; in-- {
-		if tickets[in].shop == shopName {
-			return tickets[in], nil
+		if tickets[in].Store == shopName {
+			return tickets[in]
 		}
 	}
-	return Entry{}, fmt.Errorf("no ticket found for shop %s", shopName)
+	return Entry{}
 }
 
 func WriteToSheet(manager Manager, valueRange *sheets.ValueRange, firstRow int) int {
 	ticketItems := len(valueRange.Values)
-	fmt.Println(ticketItems)
 	writeRange := fmt.Sprintf("%s!A%d:F%d", manager.PageName, firstRow, ticketItems+firstRow+1)
 	totalFunction := fmt.Sprintf("=SUM(F%d:F%d)", firstRow, firstRow+ticketItems-1)
 	valueRange.Values = append(valueRange.Values, []any{"", "", "", "", "TOTAL", totalFunction})
 
-	resp, err := manager.Service.Spreadsheets.Values.Update(manager.config.Sheets.MainID, writeRange, valueRange).ValueInputOption("USER_ENTERED").Do()
+	resp, err := manager.service.Update(manager.config.Sheets.MainID, writeRange, valueRange, "USER_ENTERED")
 	if err != nil {
 		slog.Error("Unable to write data from sheet", "ERROR", err)
+		return firstRow
 	}
 	slog.Info("Added rows to excel sheet", "CELL_COUNT", resp.UpdatedCells)
-	FormatTicketBlock(manager, firstRow, ticketItems)
+	err = FormatTicketBlock(manager, firstRow, ticketItems)
+	if err != nil {
+		slog.Warn("Unable to give format to ticket", "ERROR", err)
+	}
 	return ticketItems + 1
 }
 
@@ -241,8 +279,8 @@ func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
 		},
 	}
 
-	_, err := manager.Service.Spreadsheets.BatchUpdate(manager.config.Sheets.MainID, &sheets.BatchUpdateSpreadsheetRequest{
+	_, err := manager.service.BatchUpdate(manager.config.Sheets.MainID, &sheets.BatchUpdateSpreadsheetRequest{
 		Requests: requests,
-	}).Do()
+	})
 	return err
 }

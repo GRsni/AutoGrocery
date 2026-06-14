@@ -1,175 +1,347 @@
 package sh
 
 import (
+	"autoGrocery/pkg/constants"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"google.golang.org/api/googleapi"
+	"google.golang.org/api/sheets/v4"
 )
 
-func TestGetSheetsConfig(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Fake Sheets API
+// ---------------------------------------------------------------------------
+
+// valuesGetCall and valuesUpdateCall mirror the chained call pattern
+// (.Get(...).Do(), .Update(...).Do()) without hitting the network.
+
+type fakeValuesGetCall struct {
+	resp *sheets.ValueRange
+	err  error
+}
+
+func (f *fakeValuesGetCall) Do(...googleapi.CallOption) (*sheets.ValueRange, error) {
+	return f.resp, f.err
+}
+
+type fakeValuesUpdateCall struct {
+	resp *sheets.UpdateValuesResponse
+	err  error
+}
+
+func (f *fakeValuesUpdateCall) ValueInputOption(opt string) *fakeValuesUpdateCall { return f }
+func (f *fakeValuesUpdateCall) Do(...googleapi.CallOption) (*sheets.UpdateValuesResponse, error) {
+	return f.resp, f.err
+}
+
+// SheetsAPI covers the two Values sub-calls we use.
+type FakeSheetsAPI interface {
+	Get(spreadsheetID, readRange string) ValuesGetCall
+	Update(spreadsheetID, writeRange string, vr *sheets.ValueRange) ValuesUpdateCall
+	BatchUpdate(spreadsheetID string, req *sheets.BatchUpdateSpreadsheetRequest) (*sheets.BatchUpdateSpreadsheetResponse, error)
+}
+
+type FakeValuesGetCall interface {
+	Do(...googleapi.CallOption) (*sheets.ValueRange, error)
+}
+
+type FakeValuesUpdateCall interface {
+	ValueInputOption(string) ValuesUpdateCall
+	Do(...googleapi.CallOption) (*sheets.UpdateValuesResponse, error)
+}
+
+// fakeValues implements SheetsAPI.
+type fakeValues struct {
+	getResp         *sheets.ValueRange
+	getErr          error
+	updateResp      *sheets.UpdateValuesResponse
+	updateErr       error
+	batchUpdateResp *sheets.BatchUpdateSpreadsheetResponse
+	batchUpdateErr  error
+}
+
+func (f *fakeValues) Get(_, _ string) (*sheets.ValueRange, error) {
+	return f.getResp, f.getErr
+}
+
+func (f *fakeValues) Update(_, _ string, _ *sheets.ValueRange, _ string) (*sheets.UpdateValuesResponse, error) {
+	return f.updateResp, f.updateErr
+}
+
+func (f *fakeValues) BatchUpdate(_ string, _ *sheets.BatchUpdateSpreadsheetRequest) (*sheets.BatchUpdateSpreadsheetResponse, error) {
+	return f.batchUpdateResp, f.batchUpdateErr
+}
+
+type fakeGetCall struct {
+	resp *sheets.ValueRange
+	err  error
+}
+
+func (c *fakeGetCall) Do(...googleapi.CallOption) (*sheets.ValueRange, error) {
+	return c.resp, c.err
+}
+
+type fakeUpdateCall struct {
+	resp *sheets.UpdateValuesResponse
+	err  error
+}
+
+func (c *fakeUpdateCall) ValueInputOption(_ string) ValuesUpdateCall { return c }
+func (c *fakeUpdateCall) Do(...googleapi.CallOption) (*sheets.UpdateValuesResponse, error) {
+	return c.resp, c.err
+}
+
+// testManager builds a Manager wired to the fake values API.
+func testManager(fv *fakeValues) Manager {
+	return Manager{
+		PageName: "Sheet1",
+		config:   Config{Sheets: struct{ MainID string `json:"main-id"` }{MainID: "spreadsheet-id"}},
+		service: fv, // injected; requires Manager to expose a `values SheetsValuesAPI` field
+	}
+}
+
+// ---------------------------------------------------------------------------
+// EntryToStr
+// ---------------------------------------------------------------------------
+
+func TestEntryToStr(t *testing.T) {
+	d := func(day, month, year int) time.Time {
+		return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	}
+
 	tests := []struct {
-		name          string
-		setupFile     func(t *testing.T) string
-		expectedError bool
-		expectedID    string
+		name     string
+		entry    Entry
+		expected string
 	}{
 		{
-			name: "valid credentials file",
-			setupFile: func(t *testing.T) string {
-				tmpDir := t.TempDir()
-				credentialsFile := filepath.Join(tmpDir, "secrets.json")
-				content := `{
-					"sheets": {
-						"main-id": "1234"
-					}
-				}`
-				if err := os.WriteFile(credentialsFile, []byte(content), 0644); err != nil {
-					t.Fatalf("Failed to write credentials file: %v", err)
-				}
-				return credentialsFile
-			},
-			expectedError: false,
-			expectedID:    "1234",
+			name:     "normal entry",
+			entry:    Entry{Store: "MERCADONA", Date: d(15, 4, 2024)},
+			expected: fmt.Sprintf("Grocery Ticket: Shop=MERCADONA, Date=%s\n", d(15, 4, 2024).Format(constants.TicketDateFormat)),
 		},
 		{
-			name: "missing credentials file",
-			setupFile: func(t *testing.T) string {
-				tmpDir := t.TempDir()
-				return filepath.Join(tmpDir, "secrets.json")
-			},
-			expectedError: true,
-			expectedID:    "",
+			name:     "different store",
+			entry:    Entry{Store: "DIA", Date: d(1, 1, 2023)},
+			expected: fmt.Sprintf("Grocery Ticket: Shop=DIA, Date=%s\n", d(1, 1, 2023).Format(constants.TicketDateFormat)),
 		},
 		{
-			name: "invalid JSON syntax",
-			setupFile: func(t *testing.T) string {
-				tmpDir := t.TempDir()
-				credentialsFile := filepath.Join(tmpDir, "secrets.json")
-				content := `{ invalid json }`
-				if err := os.WriteFile(credentialsFile, []byte(content), 0644); err != nil {
-					t.Fatalf("Failed to write credentials file: %v", err)
-				}
-				return credentialsFile
-			},
-			expectedError: true,
-			expectedID:    "",
+			name:     "zero date",
+			entry:    Entry{Store: "CARREFOUR", Date: time.Time{}},
+			expected: fmt.Sprintf("Grocery Ticket: Shop=CARREFOUR, Date=%s\n", time.Time{}.Format(constants.TicketDateFormat)),
 		},
 		{
-			name: "missing sheets field",
-			setupFile: func(t *testing.T) string {
-				tmpDir := t.TempDir()
-				credentialsFile := filepath.Join(tmpDir, "secrets.json")
-				content := `{
-					"other": "field"
-				}`
-				if err := os.WriteFile(credentialsFile, []byte(content), 0644); err != nil {
-					t.Fatalf("Failed to write credentials file: %v", err)
-				}
-				return credentialsFile
-			},
-			expectedError: true,
-			expectedID:    "",
-		},
-		{
-			name: "empty main-id field",
-			setupFile: func(t *testing.T) string {
-				tmpDir := t.TempDir()
-				credentialsFile := filepath.Join(tmpDir, "secrets.json")
-				content := `{
-					"sheets": {
-						"main-id": ""
-					}
-				}`
-				if err := os.WriteFile(credentialsFile, []byte(content), 0644); err != nil {
-					t.Fatalf("Failed to write credentials file: %v", err)
-				}
-				return credentialsFile
-			},
-			expectedError: true,
-			expectedID:    "",
-		},
-		{
-			name: "extra fields in JSON (should be ignored)",
-			setupFile: func(t *testing.T) string {
-				tmpDir := t.TempDir()
-				credentialsFile := filepath.Join(tmpDir, "secrets.json")
-				content := `{
-					"sheets": {
-						"main-id": "1234"
-					},
-					"other": "field",
-					"nested": {
-						"value": 123
-					}
-				}`
-				if err := os.WriteFile(credentialsFile, []byte(content), 0644); err != nil {
-					t.Fatalf("Failed to write credentials file: %v", err)
-				}
-				return credentialsFile
-			},
-			expectedError: false,
-			expectedID:    "1234",
+			name:     "empty store",
+			entry:    Entry{Store: "", Date: d(10, 6, 2024)},
+			expected: fmt.Sprintf("Grocery Ticket: Shop=, Date=%s\n", d(10, 6, 2024).Format(constants.TicketDateFormat)),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			credentialsPath := tt.setupFile(t)
-
-			config, err := GetSheetsConfig(credentialsPath)
-
-			if tt.expectedError {
-				if err == nil {
-					t.Errorf("GetSheetsConfig() expected error but got none")
-				} else {
-					if len(config.Sheets.MainID) != 0 {
-						t.Errorf("GetSheetsConfig() expected empty config but got: %v", config)
-					}
-					return
-				}
-			}
-
-			if err != nil {
-				t.Errorf("GetSheetsConfig() unexpected error: %v", err)
-				return
-			}
-
-			if config.Sheets.MainID != tt.expectedID {
-				t.Errorf("GetSheetsConfig() MainID = %s, want %s", config.Sheets.MainID, tt.expectedID)
+			got := EntryToStr(tt.entry)
+			if got != tt.expected {
+				t.Errorf("got %q, want %q", got, tt.expected)
 			}
 		})
 	}
 }
 
-// TestGetSheetsConfig_Validation tests that the function validates required fields
-func TestGetSheetsConfig_Validation(t *testing.T) {
-	t.Run("validates non-empty main-id", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		credentialsFile := filepath.Join(tmpDir, "secrets.json")
-		content := `{
-			"sheets": {
-				"main-id": ""
-			}
-		}`
-		if err := os.WriteFile(credentialsFile, []byte(content), 0644); err != nil {
-			t.Fatalf("Failed to write credentials file: %v", err)
-		}
+// ---------------------------------------------------------------------------
+// GetLastEntryForStore
+// ---------------------------------------------------------------------------
 
-		_, err := GetSheetsConfig(credentialsFile)
-		if err == nil {
-			t.Error("GetSheetsConfig() should return error for empty main-id")
-		}
-	})
+func TestGetLastEntryForStore(t *testing.T) {
+	d := func(day int) time.Time { return time.Date(2024, 1, day, 0, 0, 0, 0, time.UTC) }
+
+	tickets := []Entry{
+		{Store: "MERCADONA", Date: d(1), FirstRow: 1},
+		{Store: "DIA", Date: d(2), FirstRow: 5},
+		{Store: "MERCADONA", Date: d(3), FirstRow: 9},
+		{Store: "DIA", Date: d(4), FirstRow: 13},
+	}
+
+	tests := []struct {
+		name      string
+		tickets   []Entry
+		shop      string
+		wantStore string
+		wantRow   int
+	}{
+		{"returns last MERCADONA", tickets, "MERCADONA", "MERCADONA", 9},
+		{"returns last DIA",       tickets, "DIA",       "DIA",       13},
+		{"store not present",      tickets, "CARREFOUR", "",          0},
+		{"empty slice",            []Entry{}, "MERCADONA", "",        0},
+		{"single matching entry",  tickets[:1], "MERCADONA", "MERCADONA", 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetLastEntryForStore(tt.tickets, tt.shop)
+			if got.Store != tt.wantStore {
+				t.Errorf("Store = %q, want %q", got.Store, tt.wantStore)
+			}
+			if got.FirstRow != tt.wantRow {
+				t.Errorf("FirstRow = %d, want %d", got.FirstRow, tt.wantRow)
+			}
+		})
+	}
 }
 
-func TestGetSheetsConfig_MissingFile(t *testing.T) {
-	t.Run("handles missing file", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		credentialsFile := filepath.Join(tmpDir, "secrets.json")
+// ---------------------------------------------------------------------------
+// GetSheetTicketList (requires fake API)
+// ---------------------------------------------------------------------------
 
-		_, err := GetSheetsConfig(credentialsFile)
-		if err == nil {
-			t.Error("GetSheetsConfig() should return error for unreadable file")
-		}
+func TestGetSheetTicketList(t *testing.T) {
+	tests := []struct {
+		name       string
+		rows       [][]any
+		wantLen    int
+		wantStores []string
+	}{
+		{
+			name:       "two valid rows",
+			rows:       [][]any{{"15/04/2024", "MERCADONA"}, {"01/05/2024", "DIA"}},
+			wantLen:    2,
+			wantStores: []string{"MERCADONA", "DIA"},
+		},
+		{
+			name:       "empty sheet",
+			rows:       [][]any{},
+			wantLen:    0,
+			wantStores: []string{},
+		},
+		{
+			name:       "row with only one column is skipped",
+			rows:       [][]any{{"15/04/2024"}, {"01/05/2024", "DIA"}},
+			wantLen:    1,
+			wantStores: []string{"DIA"},
+		},
+		{
+			name:       "float64 date value (Sheets number)",
+			rows:       [][]any{{float64(12345), "CARREFOUR"}},
+			wantLen:    1,
+			wantStores: []string{"CARREFOUR"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := testManager(&fakeValues{
+				getResp: &sheets.ValueRange{Values: tt.rows},
+			})
+
+			got, err := GetSheetTicketList(m, "A1:B300")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != tt.wantLen {
+				t.Fatalf("got %d entries, want %d", len(got), tt.wantLen)
+			}
+			for i, store := range tt.wantStores {
+				if got[i].Store != store {
+					t.Errorf("entry[%d].Store = %q, want %q", i, got[i].Store, store)
+				}
+			}
+		})
+	}
+}
+
+func TestGetSheetTicketList_APIError(t *testing.T) {
+	m := testManager(&fakeValues{
+		getErr: fmt.Errorf("network error"),
 	})
+
+	_, err := GetSheetTicketList(m, "A1:B300")
+	if err == nil {
+		t.Error("expected error from API failure, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetLastWrittenRowIndex (requires fake API)
+// ---------------------------------------------------------------------------
+
+func TestGetLastWrittenRowIndex(t *testing.T) {
+	tests := []struct {
+		name    string
+		rows    [][]any
+		wantRow int
+	}{
+		{
+			name:    "single TOTAL row at position 3",
+			rows:    [][]any{{"item"}, {"item"}, {"TOTAL", ""}},
+			wantRow: 4, // i=2 → i+2=4
+		},
+		{
+			name:    "multiple TOTAL rows returns last",
+			rows:    [][]any{{"TOTAL", ""}, {"item"}, {"item"}, {"TOTAL", ""}},
+			wantRow: 5, // i=3 → i+2=5
+		},
+		{
+			name:    "no TOTAL row returns default 1",
+			rows:    [][]any{{"item"}, {"item"}},
+			wantRow: 1,
+		},
+		{
+			name:    "empty sheet returns default 1",
+			rows:    [][]any{},
+			wantRow: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := testManager(&fakeValues{
+				getResp: &sheets.ValueRange{Values: tt.rows},
+			})
+			got := GetLastWrittenRowIndex(m)
+			if got != tt.wantRow {
+				t.Errorf("got %d, want %d", got, tt.wantRow)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// getSheetsConfig (existing, kept for completeness — already in your suite)
+// ---------------------------------------------------------------------------
+
+func TestGetSheetsConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		writeFile   bool
+		wantErr     bool
+		wantID      string
+	}{
+		{"valid",                   `{"sheets":{"main-id":"1234"}}`,           true,  false, "1234"},
+		{"missing file",            "",                                          false, true,  ""},
+		{"invalid JSON",            `{ invalid }`,                              true,  true,  ""},
+		{"missing sheets field",    `{"other":"field"}`,                        true,  true,  ""},
+		{"empty main-id",           `{"sheets":{"main-id":""}}`,               true,  true,  ""},
+		{"extra fields ignored",    `{"sheets":{"main-id":"42"},"x":1}`,       true,  false, "42"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "creds.json")
+			if tt.writeFile {
+				if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
+					t.Fatalf("setup: %v", err)
+				}
+			}
+
+			cfg, err := getSheetsConfig(path)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("wantErr=%v, got err=%v", tt.wantErr, err)
+			}
+			if !tt.wantErr && cfg.Sheets.MainID != tt.wantID {
+				t.Errorf("MainID = %q, want %q", cfg.Sheets.MainID, tt.wantID)
+			}
+		})
+	}
 }

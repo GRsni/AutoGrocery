@@ -6,6 +6,7 @@ import (
 	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"bytes"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -17,27 +18,32 @@ import (
 const GmailLabelId = "Label_2031551581397134603"
 const TicketHeaderRows = 7
 
-
 func GetTicketList(manager gm.Manager, lastFound time.Time) []internal.Ticket {
 	tickets := make([]internal.Ticket, 0)
 
 	messages := gm.GetMessagesFromLabel(manager, GmailLabelId)
 
 	for _, m := range messages {
-		dateFromTicket := getDateFromTicket(m)
+		dateFromTicket, err := getDateFromTicket(m)
+		if err != nil {
+			slog.Warn("Unable to get date from ticket filename, skipping", "ERROR", err)
+			continue
+		}
 		if dateFromTicket.After(lastFound) {
 			ticket := getTicketDetails(manager, m, dateFromTicket)
 			tickets = append(tickets, ticket)
-			slog.Info(ticket.TicketToStr(constants.MERCADONA))
+			slog.Info(ticket.TicketToStr())
 		}
 	}
-
 	return tickets
 }
-func getDateFromTicket(message *gmail.Message) time.Time {
+func getDateFromTicket(message *gmail.Message) (time.Time, error) {
 	filenameParts := strings.Split(message.Payload.Parts[1].Filename, " ")
-	date, _ := time.Parse("20060102", filenameParts[0])
-	return date
+	date, err := time.Parse("20060102", filenameParts[0])
+	if err != nil {
+		return time.Now(), fmt.Errorf("unable to parse date from filename: %v", err)
+	}
+	return date, nil
 }
 
 func getTicketDetails(manager gm.Manager, message *gmail.Message, ticketDate time.Time) internal.Ticket {
@@ -55,6 +61,7 @@ func getTicketDetails(manager gm.Manager, message *gmail.Message, ticketDate tim
 		Items: items,
 		Id:    id,
 		Total: ticketTotal,
+		Store: constants.MERCADONA,
 		Date:  ticketDate,
 	}
 }

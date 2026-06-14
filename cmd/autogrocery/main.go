@@ -10,9 +10,9 @@ import (
 	"autoGrocery/pkg/constants"
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
+	"sort"
 	"time"
 
 	"google.golang.org/api/gmail/v1"
@@ -50,21 +50,27 @@ func main() {
 	lastWrittenRow := sh.GetLastWrittenRowIndex(sheetsManager)
 	fmt.Println("last row: ", lastWrittenRow)
 
-	fmt.Println("all tickets: ", getAllTicketsFromStores(gmailManager, ticketsFromSheet))
+	newTicketsMap := getAllTicketsFromStores(gmailManager, ticketsFromSheet)
 
-	//for _, mercadonaTicket := range mercadonaTickets {
-	//	valueRange := mercadonaTicket.ToValueRange(constants.MERCADONA)
-	//
-	//	updatedLines := sh.WriteToSheet(sheetsManager, valueRange, lastWrittenRow+1)
-	//	lastWrittenRow += updatedLines
-	//}
-	//
-	//for _, diaTicket := range newDiaTickets {
-	//	valueRange := diaTicket.ToValueRange(constants.DIA)
-	//
-	//	updatedLines := sh.WriteToSheet(sheetsManager, valueRange, lastWrittenRow+1)
-	//	lastWrittenRow += updatedLines
-	//}
+	fmt.Println("all tickets: ")
+
+	newTicketsList := CombineTickets(newTicketsMap)
+	fmt.Println(newTicketsList)
+
+	uploadNewTickets(newTicketsList, sheetsManager, lastWrittenRow)
+
+}
+
+func uploadNewTickets(newTicketsList []internal.Ticket, sheetsManager sh.Manager, lastWrittenRow int) {
+	for _, ticketToUpload := range newTicketsList {
+		valueRange, err := ticketToUpload.ToValueRange()
+		if err !=nil{
+			slog.Info("Unable to create value range object, skipping", "ERROR", err)
+			return
+		}
+		updatedLines := sh.WriteToSheet(sheetsManager, valueRange, lastWrittenRow+1)
+		lastWrittenRow += updatedLines
+	}
 }
 
 func setupLogger() {
@@ -77,17 +83,19 @@ func setupLogger() {
 func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry) map[string][]internal.Ticket {
 	allTickets := make(map[string][]internal.Ticket, 3)
 
-	for _, store := range []string{constants.MERCADONA, constants.DIA} {
-		lastEntry, err := sh.GetLastTicketForShop(sheetEntries, store)
-		if err != nil {
-			log.Fatalf("Unable to retrieve last ticket for %s: %v", store, err)
+	for _, store := range []string{constants.MERCADONA, constants.DIA, constants.CARREFOUR} {
+		lastEntryFromSheets := sh.GetLastEntryForStore(sheetEntries, store)
+		if len(lastEntryFromSheets.Store) == 0 {
+			slog.Info("No last ticket found for store ", "STORE" ,store)
+		}else {
+			slog.Info("Last ticket found for store ", "STORE", store, "ENTRY", sh.EntryToStr(lastEntryFromSheets))
 		}
-		fmt.Printf("Last ticket found for %s: %v\n", store, sh.EntryToStr(lastEntry))
+
 		switch store {
 		case constants.MERCADONA:
-			allTickets[constants.MERCADONA] = getMercadonaTickets(gmManager, lastEntry)
+			allTickets[constants.MERCADONA] = getMercadonaTickets(gmManager, lastEntryFromSheets)
 		case constants.DIA:
-			allTickets[constants.DIA] = getDiaTickets(lastEntry)
+			allTickets[constants.DIA] = getDiaTickets(lastEntryFromSheets)
 		}
 	}
 	return allTickets
@@ -108,4 +116,16 @@ func getDiaTickets(lastEntry sh.Entry) []internal.Ticket {
 	cleanup()
 	diaPage.Close()
 	return newDiaTickets
+}
+
+func CombineTickets(allTickets map[string][]internal.Ticket) []internal.Ticket {
+	ticketList := allTickets[constants.MERCADONA]
+	ticketList = append(ticketList, allTickets[constants.DIA]...)
+	ticketList = append(ticketList, allTickets[constants.CARREFOUR]...)
+
+	sort.SliceStable(ticketList, func(i, j int) bool {
+		return ticketList[i].Date.Before(ticketList[j].Date)
+	})
+
+	return ticketList
 }

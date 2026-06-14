@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"math/rand"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -259,7 +258,10 @@ func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
 	humanDelay()
 	page.MustWaitLoad().MustWaitIdle()
 
-	//page.MustScreenshot(debugImagesPath + "ticket_list.png")
+	cookiesBtn, err := page.Timeout(2 * time.Second).Element("#onetrust-reject-all-handler")
+	if err == nil {
+		cookiesBtn.MustClick()
+	}
 
 	ticketElements, err := page.Elements(".tickets__ticket-container__card")
 	if err != nil {
@@ -276,13 +278,9 @@ func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
 		if dateFromTicket.After(lastFound) {
 			diaTicket := getTicketDetails(ticket, page, dateFromTicket)
 			tickets = append(tickets, diaTicket)
-			slog.Debug(diaTicket.TicketToStr(constants.DIA))
+			slog.Debug(diaTicket.TicketToStr())
 		}
 	}
-
-	sort.SliceStable(tickets, func(i, j int) bool {
-		return tickets[i].Date.Before(tickets[j].Date)
-	})
 
 	return tickets
 }
@@ -336,7 +334,7 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 
 	humanDelay()
 
-	return internal.Ticket{Id: ticketId, Total: ticketTotal, Items: items, Date: date}
+	return internal.Ticket{Id: ticketId, Total: ticketTotal, Items: items, Date: date, Store: constants.DIA}
 }
 
 func ticketIsValid(total float64, items []internal.Item) bool {
@@ -354,7 +352,7 @@ func getDateFromTicket(ticketString string) (content time.Time, err error) {
 	if len(textLines) <= 1 {
 		return time.Unix(0, 0), fmt.Errorf("ticket string doesn't have enough lines")
 	}
-	extractedDate, err := time.Parse("02/01/2006", strings.TrimSpace(textLines[1]))
+	extractedDate, err := time.Parse(constants.TicketDateFormat, strings.TrimSpace(textLines[1]))
 	if err != nil {
 		slog.Debug("Error parsing date", "ERROR", err)
 		return
@@ -377,13 +375,13 @@ func getItemList(page *rod.Page) ([]internal.Item, error) {
 		itemTotalFound := getItemTotal(row)
 		totalCorrect := isTotalCorrect(itemQty, pricePerUnit, itemTotalFound)
 		if !totalCorrect {
-			slog.Debug("Item total not correct, discarding item")
+			slog.Debug("Item total not correct, discarding item", "ITEM", itemName)
 			continue
 		}
 		itemDiscount := getDiscount(row)
 		if itemDiscount < 0 {
 			// Apply discount shared between units
-			pricePerUnit = pricePerUnit - itemDiscount/itemQty
+			pricePerUnit = pricePerUnit + itemDiscount/itemQty
 		}
 
 		//fmt.Println(itemName, itemQty, pricePerUnit, totalCorrect, itemDiscount)
@@ -426,7 +424,7 @@ func getItemQty(element *rod.Element) float64 {
 			qtyStr, _ = weightElement.Text()
 		}
 	}
-	parsedQty := utils.ParseQty(qtyStr)
+	parsedQty := utils.ParseQtyWithPrecision(qtyStr, 3)
 	return parsedQty
 }
 
@@ -451,7 +449,7 @@ func getItemTotal(element *rod.Element) float64 {
 func getDiscount(element *rod.Element) float64 {
 	hasDiscount, itemDiscount, err := element.Has("[data-test-id='ticket-products-product-promotion-amount']")
 	if err != nil {
-		slog.Debug("Unable to find item discount element", "ERROR", err)
+		slog.Error("Unable to find item discount element", "ERROR", err)
 		return 0.0
 	}
 	if !hasDiscount {
@@ -460,7 +458,7 @@ func getDiscount(element *rod.Element) float64 {
 	}
 	parsedDiscountStr, err := itemDiscount.Text()
 	if err != nil {
-		slog.Debug("Unable to get discount from item discount", "ERROR", err)
+		slog.Error("Unable to get discount from item discount", "ERROR", err)
 		return 0.0
 	}
 	parsedDiscount := utils.ParsePrice(parsedDiscountStr)

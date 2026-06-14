@@ -1,6 +1,7 @@
 package dia
 
 import (
+	"autoGrocery/internal"
 	"os"
 	"testing"
 	"time"
@@ -214,29 +215,29 @@ func TestTicketIsValid(t *testing.T) {
 	tests := []struct {
 		name     string
 		total    float64
-		items    []Item
+		items    []internal.Item
 		expected bool
 	}{
 		{
 			name:  "Valid Match",
 			total: 51.25,
-			items: []Item{
-				{name: "Apple", amount: 5, price: 10.25},
+			items: []internal.Item{
+				{Name: "Apple", Amount: 5, Price: 10.25},
 			},
 			expected: true,
 		},
 		{
 			name:  "Invalid Mismatch",
 			total: 50.50,
-			items: []Item{
-				{name: "Apple", amount: 3, price: 10.25}, // 3 * 10.25 = 30.75
+			items: []internal.Item{
+				{Name: "Apple", Amount: 3, Price: 10.25}, // 3 * 10.25 = 30.75
 			},
 			expected: false,
 		},
 		{
 			name:     "Empty Items List",
 			total:    0.00,
-			items:    []Item{},
+			items:    []internal.Item{},
 			expected: true,
 		},
 	}
