@@ -12,6 +12,8 @@ type Item struct {
 	Name   string
 	Amount float64
 	Price  float64
+	Discount float64
+	Cancelled bool
 }
 
 type Ticket struct {

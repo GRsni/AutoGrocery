@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -297,8 +298,8 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 		ticketBtn.MustClick()
 
 		humanDelay()
-		ticketDebugImagePath := debugImagesPath + "ticket-" + date.Format("2-1-2006") + ".png"
-		fmt.Println(ticketDebugImagePath)
+		//ticketDebugImagePath := debugImagesPath + "ticket-" + date.Format("2-1-2006") + ".png"
+		//fmt.Println(ticketDebugImagePath)
 		//page.MustScreenshot(ticketDebugImagePath)
 		slog.Debug("✓ Ticket button clicked")
 	} else {
@@ -363,14 +364,14 @@ func getDateFromTicket(ticketString string) (content time.Time, err error) {
 func getItemList(page *rod.Page) ([]internal.Item, error) {
 	rows, err := page.Elements("[data-test-id='ticket-products-product']")
 	if err != nil {
-		slog.Debug("Unable to find item row element", "ERROR", err)
+		slog.Debug("Error while trying to find item row element", "ERROR", err)
 		return nil, err
 	}
 	items := make([]internal.Item, 0)
 
 	for i, row := range rows {
 		itemName := getItemName(row)
-		itemQty := getItemQty(row)
+		itemQty, isCancelled := getItemQty(row)
 		pricePerUnit := getPricePerUnit(row, i)
 		itemTotalFound := getItemTotal(row)
 		totalCorrect := isTotalCorrect(itemQty, pricePerUnit, itemTotalFound)
@@ -379,59 +380,67 @@ func getItemList(page *rod.Page) ([]internal.Item, error) {
 			continue
 		}
 		itemDiscount := getDiscount(row)
-		if itemDiscount < 0 {
-			// Apply discount shared between units
-			pricePerUnit = pricePerUnit + itemDiscount/itemQty
-		}
 
 		//fmt.Println(itemName, itemQty, pricePerUnit, totalCorrect, itemDiscount)
-		items = append(items, internal.Item{Name: itemName, Amount: itemQty, Price: pricePerUnit})
+		items = append(items, internal.Item{Name: itemName, Amount: itemQty, Price: pricePerUnit, Cancelled: isCancelled, Discount: itemDiscount})
 	}
 
+	items = removeCancelledItems(items)
+	items = applyDiscounts(items)
 	return items, nil
 }
 
 func getItemName(element *rod.Element) string {
 	itemName, err := element.MustElement("[data-test-id='ticket-products-product-name']").Text()
 	if err != nil {
-		slog.Debug("Unable to find item name element", "ERROR", err)
+		slog.Debug("Error while trying to find item name element", "ERROR", err)
 		return ""
 	}
 	return itemName
 }
 
-func getItemQty(element *rod.Element) float64 {
+func getItemQty(element *rod.Element) (float64, bool) {
 	qtyStr := ""
 	itemQtyFound, itemQty, err := element.Has("[data-test-id='ticket-products-product-quantity']")
 	if err != nil {
-		slog.Debug("Unable to find item quantity element", "ERROR", err)
-		return 0.0
+		slog.Debug("Error while trying to find item quantity element", "ERROR", err)
+		return 0.0, false
 	}
 	if itemQtyFound {
 		qtyStr, err = itemQty.Text()
 		if err != nil {
-			slog.Debug("Unable to find item quantity element", "ERROR", err)
-			return 0.0
+			slog.Debug("Error while trying to find item quantity element", "ERROR", err)
+			return 0.0, false
 		}
 	} else {
 		slog.Debug("Item quantity element not found, searching for weight")
 		weightFound, weightElement, err := element.Has("[data-test-id='ticket-products-product-weight']")
 		if err != nil {
-			slog.Debug("Unable to find item weight element", "ERROR", err)
-			return 0.0
+			slog.Debug("Error while trying to find item weight element", "ERROR", err)
+			return 0.0, false
 		}
 		if weightFound {
 			qtyStr, _ = weightElement.Text()
 		}
 	}
 	parsedQty := utils.ParseQtyWithPrecision(qtyStr, 3)
-	return parsedQty
+
+	hasCancelled, _, err := element.Has(".ticket-products__content-data-quantity--cancel")
+	if err != nil {
+		slog.Debug("Error while trying to read cancelled flag", "ERROR", err)
+		return 0, false
+	}
+
+	if hasCancelled {
+		parsedQty *= -1
+	}
+	return parsedQty, hasCancelled
 }
 
 func getPricePerUnit(element *rod.Element, index int) float64 {
 	itemPricePerUnit, err := element.MustElement("[data-test-id='ticket-products-product-price-per-unit-" + strconv.Itoa(index) + "']").Text()
 	if err != nil {
-		slog.Debug("Unable to find item price per unit element", "ERROR", err)
+		slog.Debug("Error while trying to find item price per unit element", "ERROR", err)
 	}
 	parsedPrice := utils.ParsePrice(itemPricePerUnit)
 	return parsedPrice
@@ -440,7 +449,7 @@ func getPricePerUnit(element *rod.Element, index int) float64 {
 func getItemTotal(element *rod.Element) float64 {
 	itemTotal, err := element.MustElement("[data-test-id='ticket-products-product-amount']").Text()
 	if err != nil {
-		slog.Debug("Unable to find item amount element", "ERROR", err)
+		slog.Debug("Error while trying to find item amount element", "ERROR", err)
 	}
 	parsedTotal := utils.ParsePrice(itemTotal)
 	return parsedTotal
@@ -449,16 +458,16 @@ func getItemTotal(element *rod.Element) float64 {
 func getDiscount(element *rod.Element) float64 {
 	hasDiscount, itemDiscount, err := element.Has("[data-test-id='ticket-products-product-promotion-amount']")
 	if err != nil {
-		slog.Error("Unable to find item discount element", "ERROR", err)
+		slog.Error("Error while trying to find item discount element", "ERROR", err)
 		return 0.0
 	}
 	if !hasDiscount {
-		slog.Debug("Item discount not found")
 		return 0.0
 	}
+	slog.Debug("Item discount found")
 	parsedDiscountStr, err := itemDiscount.Text()
 	if err != nil {
-		slog.Error("Unable to get discount from item discount", "ERROR", err)
+		slog.Error("Error while trying to get discount from item discount", "ERROR", err)
 		return 0.0
 	}
 	parsedDiscount := utils.ParsePrice(parsedDiscountStr)
@@ -468,4 +477,33 @@ func getDiscount(element *rod.Element) float64 {
 
 func isTotalCorrect(qty float64, pricePer float64, totalFound float64) bool {
 	return utils.FloatsEqual(utils.ToFixed(qty*pricePer, 2), totalFound)
+}
+
+func removeCancelledItems(items []internal.Item) []internal.Item {
+	indexes := make([]int, 0)
+	for i, item := range items {
+		if item.Cancelled {
+			for j, _ := range items {
+				if item.Name == items[j].Name {
+					items[j].Amount += item.Amount
+				}
+			}
+			indexes = append(indexes, i)
+		}
+	}
+	items = slices.DeleteFunc(items, func(item internal.Item) bool {
+		return item.Cancelled
+	})
+
+	return items
+}
+
+func applyDiscounts(items []internal.Item) []internal.Item{
+	for i := range items {
+		if items[i].Discount < 0 {
+			// Apply discount shared between units
+			items[i].Price = items[i].Price + items[i].Discount/items[i].Amount
+		}
+	}
+	return items
 }

@@ -45,10 +45,9 @@ func main() {
 
 	ticketsFromSheet, _ := sh.GetSheetTicketList(sheetsManager, "A2:B200")
 
-	fmt.Println("Fetched", len(ticketsFromSheet), "tickets for", currentYear, constants.FromTimeMonth(currentMonth), currentDay)
+	slog.Info(fmt.Sprintf("Fetched %d tickets for %v %v %v", len(ticketsFromSheet), currentYear, constants.FromTimeMonth(currentMonth), currentDay))
 
 	lastWrittenRow := sh.GetLastWrittenRowIndex(sheetsManager)
-	fmt.Println("last row: ", lastWrittenRow)
 
 	newTicketsMap := getAllTicketsFromStores(gmailManager, ticketsFromSheet)
 
@@ -64,7 +63,7 @@ func main() {
 func uploadNewTickets(newTicketsList []internal.Ticket, sheetsManager sh.Manager, lastWrittenRow int) {
 	for _, ticketToUpload := range newTicketsList {
 		valueRange, err := ticketToUpload.ToValueRange()
-		if err !=nil{
+		if err != nil {
 			slog.Info("Unable to create value range object, skipping", "ERROR", err)
 			return
 		}
@@ -86,8 +85,8 @@ func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry) map[
 	for _, store := range []string{constants.MERCADONA, constants.DIA, constants.CARREFOUR} {
 		lastEntryFromSheets := sh.GetLastEntryForStore(sheetEntries, store)
 		if len(lastEntryFromSheets.Store) == 0 {
-			slog.Info("No last ticket found for store ", "STORE" ,store)
-		}else {
+			slog.Info("No last ticket found for store ", "STORE", store)
+		} else {
 			slog.Info("Last ticket found for store ", "STORE", store, "ENTRY", sh.EntryToStr(lastEntryFromSheets))
 		}
 
