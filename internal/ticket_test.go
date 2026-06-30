@@ -200,3 +200,78 @@ func TestToValueRange_PlusSignIsHandled(t *testing.T) {
 		}
 	}
 }
+
+func Test_ticketIsValid(t *testing.T) {
+	type args struct {
+		total float64
+		items Items
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "valid ticket - single item",
+			args: args{
+				total: 2.50,
+				items: Items{{Name: "Milk", Amount: 1, Price: 2.50}},
+			},
+			want: true,
+		},
+		{
+			name: "valid ticket - multiple items",
+			args: args{
+				total: 5.70,
+				items: Items{
+					{Name: "Milk", Amount: 1, Price: 2.50},
+					{Name: "Bread", Amount: 2, Price: 1.60},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "invalid ticket - total too high",
+			args: args{
+				total: 10.00,
+				items: Items{{Name: "Milk", Amount: 1, Price: 2.50}},
+			},
+			want: false,
+		},
+		{
+			name: "invalid ticket - total too low",
+			args: args{
+				total: 1.00,
+				items: Items{{Name: "Milk", Amount: 2, Price: 2.50}},
+			},
+			want: false,
+		},
+		{
+			name: "empty items with zero total",
+			args: args{
+				total: 0.00,
+				items: Items{},
+			},
+			want: true,
+		},
+		{
+			name: "floating point accumulation rounds correctly",
+			args: args{
+				total: 1.50,
+				items: Items{
+					{Name: "Item A", Amount: 1, Price: 0.50},
+					{Name: "Item B", Amount: 1, Price: 0.50},
+					{Name: "Item C", Amount: 1, Price: 0.50},
+				},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.args.items.IsTotalValid(tt.args.total); got != tt.want {
+				t.Errorf("ticketIsValid() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

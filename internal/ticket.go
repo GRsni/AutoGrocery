@@ -2,6 +2,7 @@ package internal
 
 import (
 	"autoGrocery/pkg/constants"
+	"autoGrocery/utils"
 	"fmt"
 	"time"
 
@@ -9,15 +10,17 @@ import (
 )
 
 type Item struct {
-	Name   string
-	Amount float64
-	Price  float64
-	Discount float64
+	Name      string
+	Amount    float64
+	Price     float64
+	Discount  float64
 	Cancelled bool
 }
 
+type Items []Item
+
 type Ticket struct {
-	Items []Item
+	Items Items
 	Id    string
 	Total float64
 	Store string
@@ -27,6 +30,10 @@ type Ticket struct {
 type UploadableTicket interface {
 	TicketToStr() string
 	ToValueRange() *sheets.ValueRange
+}
+
+type ValidatedItems interface {
+	IsTotalValid() bool
 }
 
 func (ticket Ticket) ToValueRange() (*sheets.ValueRange, error) {
@@ -52,4 +59,14 @@ func (ticket Ticket) ToValueRange() (*sheets.ValueRange, error) {
 
 func (ticket Ticket) TicketToStr() string {
 	return fmt.Sprintf("%s Ticket: %s, total: %f€, items: %s", ticket.Store, ticket.Id, ticket.Total, fmt.Sprint(ticket.Items))
+}
+
+func (items Items) IsTotalValid(total float64) bool {
+	itemsTotal := 0.0
+
+	for _, item := range items {
+		itemsTotal += item.Amount * item.Price
+	}
+
+	return utils.FloatsEqual(total, utils.ToFixed(itemsTotal, 2))
 }

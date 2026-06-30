@@ -277,9 +277,9 @@ func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
 			return nil
 		}
 		if dateFromTicket.After(lastFound) {
-			diaTicket := getTicketDetails(ticket, page, dateFromTicket)
-			tickets = append(tickets, diaTicket)
-			slog.Debug(diaTicket.TicketToStr())
+			ticket := getTicketDetails(ticket, page, dateFromTicket)
+			tickets = append(tickets, ticket)
+			slog.Debug(ticket.TicketToStr())
 		}
 	}
 
@@ -298,9 +298,6 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 		ticketBtn.MustClick()
 
 		humanDelay()
-		//ticketDebugImagePath := debugImagesPath + "ticket-" + date.Format("2-1-2006") + ".png"
-		//fmt.Println(ticketDebugImagePath)
-		//page.MustScreenshot(ticketDebugImagePath)
 		slog.Debug("✓ Ticket button clicked")
 	} else {
 		slog.Debug("Ticket button not found")
@@ -317,8 +314,11 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 	ticketTotal := utils.ParsePrice(ticketTotalStr)
 
 	items, err := getItemList(page)
+	if err != nil {
+		slog.Debug("Error while trying to get ticket items", "TICKET", ticketId, "ERROR", err)
+	}
 
-	if !ticketIsValid(ticketTotal, items) {
+	if !items.IsTotalValid(ticketTotal) {
 		slog.Warn("Ticket price does not match up, discarding")
 		return internal.Ticket{}
 	}
@@ -330,22 +330,12 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 		return internal.Ticket{}
 	}
 	ticketClose.Hover()
-	time.Sleep(time.Duration(300+rand.Intn(300)) * time.Millisecond)
+	humanDelay()
 	ticketClose.MustClick()
 
 	humanDelay()
 
 	return internal.Ticket{Id: ticketId, Total: ticketTotal, Items: items, Date: date, Store: constants.DIA}
-}
-
-func ticketIsValid(total float64, items []internal.Item) bool {
-	itemsTotal := 0.0
-
-	for _, item := range items {
-		itemsTotal += item.Amount * item.Price
-	}
-
-	return utils.FloatsEqual(total, utils.ToFixed(itemsTotal, 2))
 }
 
 func getDateFromTicket(ticketString string) (content time.Time, err error) {
@@ -361,13 +351,13 @@ func getDateFromTicket(ticketString string) (content time.Time, err error) {
 	return extractedDate, nil
 }
 
-func getItemList(page *rod.Page) ([]internal.Item, error) {
+func getItemList(page *rod.Page) (internal.Items, error) {
 	rows, err := page.Elements("[data-test-id='ticket-products-product']")
 	if err != nil {
 		slog.Debug("Error while trying to find item row element", "ERROR", err)
 		return nil, err
 	}
-	items := make([]internal.Item, 0)
+	items := make([]internal.Item, 0, 1)
 
 	for i, row := range rows {
 		itemName := getItemName(row)
@@ -498,7 +488,7 @@ func removeCancelledItems(items []internal.Item) []internal.Item {
 	return items
 }
 
-func applyDiscounts(items []internal.Item) []internal.Item{
+func applyDiscounts(items []internal.Item) []internal.Item {
 	for i := range items {
 		if items[i].Discount < 0 {
 			// Apply discount shared between units

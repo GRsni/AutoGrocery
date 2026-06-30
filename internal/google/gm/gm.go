@@ -51,11 +51,18 @@ func GetMessagesFromLabel(manager Manager, labelId string) []*gmail.Message {
 func GetAttachmentFromMessage(manager Manager, messageId string, attachmentId string) []byte {
 	attachment, err := manager.Service.Users.Messages.Attachments.Get(User, messageId, attachmentId).Do()
 	if err != nil {
-		log.Fatalf("Unable to retrieve attachment from message: %v", err)
+		slog.Error("Unable to retrieve attachment from message", "ERROR", err)
 	}
 	decodedFile, err := base64.URLEncoding.DecodeString(attachment.Data)
-	if err != nil{
-		log.Fatalf("Unable to decode attachment from email: %v", err)
+	if err != nil {
+		slog.Error("Unable to decode attachment from email", "ERROR", err)
 	}
 	return decodedFile
+}
+
+func DeleteMessage(manager Manager, messageId string) {
+	err := manager.Service.Users.Messages.Delete(User, messageId).Do()
+	if err != nil {
+		slog.Error("Unable to delete email", "MESSAGE_ID", messageId, "ERROR", err)
+	}
 }

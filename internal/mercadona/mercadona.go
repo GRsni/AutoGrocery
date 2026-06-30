@@ -53,7 +53,7 @@ func getTicketDetails(manager gm.Manager, message *gmail.Message, ticketDate tim
 	ticketTotal := utils.StringToFloat(filenameParts[2], 2)
 	items := getTicketItems(manager, message)
 
-	if !ticketIsValid(ticketTotal, items) {
+	if !items.IsTotalValid(ticketTotal) {
 		slog.Warn("Ticket price does not match up, discarding")
 		return internal.Ticket{}
 	}
@@ -71,18 +71,8 @@ func getTicketId(message *gmail.Message) string {
 	return snippetParts[len(snippetParts)-1]
 }
 
-func ticketIsValid(total float64, items []internal.Item) bool {
-	itemsTotal := 0.0
-
-	for _, item := range items {
-		itemsTotal += item.Amount * item.Price
-	}
-
-	return utils.FloatsEqual(total, utils.ToFixed(itemsTotal, 2))
-}
-
-func getTicketItems(manager gm.Manager, m *gmail.Message) []internal.Item {
-	items := make([]internal.Item, 0)
+func getTicketItems(manager gm.Manager, m *gmail.Message) internal.Items {
+	items := make([]internal.Item, 0, 1)
 	fileBytes := gm.GetAttachmentFromMessage(manager, m.Id, m.Payload.Parts[1].Body.AttachmentId)
 	r, err := pdf.NewReader(bytes.NewReader(fileBytes), int64(len(fileBytes)))
 	if err != nil {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"autoGrocery/internal"
+	"autoGrocery/internal/carrefour"
 	"autoGrocery/internal/dia"
 	"autoGrocery/internal/google/gm"
 	"autoGrocery/internal/google/sh"
@@ -30,12 +31,12 @@ func main() {
 
 	currentYear, currentMonth, currentDay := time.Now().Date()
 	fmt.Println("Current date:", currentYear, constants.FromTimeMonth(currentMonth), currentDay)
-	//yearStr := fmt.Sprintf("%02d", currentYear%100)
-	//sheetPageName := fmt.Sprintf("%s %s", string(constants.FromTimeMonth(currentMonth)), yearStr)
-	sheetPageName := "testpage"
+	yearStr := fmt.Sprintf("%02d", currentYear%100)
+	sheetPageName := fmt.Sprintf("%s %s", string(constants.FromTimeMonth(currentMonth)), yearStr)
+	//sheetPageName := "testpage"
 	readRange := fmt.Sprintf("%s!%s", sheetPageName, "A2:B200")
 
-	oAuthConfig := token.GetOauthConfig(CredsFilePath, sheets.SpreadsheetsScope, gmail.GmailReadonlyScope)
+	oAuthConfig := token.GetOauthConfig(CredsFilePath, sheets.SpreadsheetsScope, gmail.MailGoogleComScope)
 
 	gmailManager := gm.GetGmailManager(ctx, oAuthConfig, TokenFilePath)
 
@@ -43,7 +44,7 @@ func main() {
 
 	slog.Debug("Fetching date column data from " + readRange)
 
-	ticketsFromSheet, _ := sh.GetSheetTicketList(sheetsManager, "A2:B200")
+	ticketsFromSheet, _ := sh.GetSheetTicketList(sheetsManager, "A2:B300")
 
 	slog.Info(fmt.Sprintf("Fetched %d tickets for %v %v %v", len(ticketsFromSheet), currentYear, constants.FromTimeMonth(currentMonth), currentDay))
 
@@ -51,10 +52,8 @@ func main() {
 
 	newTicketsMap := getAllTicketsFromStores(gmailManager, ticketsFromSheet)
 
-	fmt.Println("all tickets: ")
-
 	newTicketsList := CombineTickets(newTicketsMap)
-	fmt.Println(newTicketsList)
+	slog.Info("New tickets found", "TICKETS", newTicketsList)
 
 	uploadNewTickets(newTicketsList, sheetsManager, lastWrittenRow)
 
@@ -93,28 +92,47 @@ func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry) map[
 		switch store {
 		case constants.MERCADONA:
 			allTickets[constants.MERCADONA] = getMercadonaTickets(gmManager, lastEntryFromSheets)
+			break
 		case constants.DIA:
 			allTickets[constants.DIA] = getDiaTickets(lastEntryFromSheets)
+			break
+		case constants.CARREFOUR:
+			allTickets[constants.CARREFOUR] = getCarrefourTickets(gmManager, lastEntryFromSheets)
 		}
 	}
 	return allTickets
 }
 
 func getMercadonaTickets(manager gm.Manager, lastEntry sh.Entry) []internal.Ticket {
-	return mercadona.GetTicketList(manager, lastEntry.Date)
+	tickets := mercadona.GetTicketList(manager, lastEntry.Date)
+	slog.Info("Found new tickets\n", "TICKETS", len(tickets), "STORE", constants.MERCADONA)
+	return tickets
 }
 
 func getDiaTickets(lastEntry sh.Entry) []internal.Ticket {
-	diaPage, cleanup, err := dia.LoginToDia(CredsFilePath, CookiesPath)
+	page, cleanup, err := dia.LoginToDia(CredsFilePath, CookiesPath)
 	if err != nil {
 		cleanup()
 		return []internal.Ticket{}
 	}
-	newDiaTickets := dia.GetTicketList(diaPage, lastEntry.Date)
-	fmt.Printf("Found %d new tickets for DIA\n", len(newDiaTickets))
+	newDiaTickets := dia.GetTicketList(page, lastEntry.Date)
+	slog.Info("Found new tickets", "TICKETS", len(newDiaTickets), "STORE", constants.DIA)
 	cleanup()
-	diaPage.Close()
+	page.Close()
 	return newDiaTickets
+}
+
+func getCarrefourTickets(manager gm.Manager, lastEntry sh.Entry) []internal.Ticket {
+	page, cleanup, err := carrefour.LoginToCarrefour(manager, CredsFilePath)
+	if err != nil {
+		cleanup()
+		return []internal.Ticket{}
+	}
+	newTickets := carrefour.GetTicketList(page, lastEntry.Date)
+	slog.Info("Found new tickets", "TICKETS", len(newTickets), "STORE", constants.CARREFOUR)
+	cleanup()
+	page.Close()
+	return newTickets
 }
 
 func CombineTickets(allTickets map[string][]internal.Ticket) []internal.Ticket {

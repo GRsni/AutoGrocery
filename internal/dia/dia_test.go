@@ -1,7 +1,6 @@
 package dia
 
 import (
-	"autoGrocery/internal"
 	"os"
 	"testing"
 	"time"
@@ -210,48 +209,6 @@ func TestGetDateFromTicket(t *testing.T) {
 	}
 }
 
-// Tests for Ticket Validation Logic (Pure Math)
-func TestTicketIsValid(t *testing.T) {
-	tests := []struct {
-		name     string
-		total    float64
-		items    []internal.Item
-		expected bool
-	}{
-		{
-			name:  "Valid Match",
-			total: 51.25,
-			items: []internal.Item{
-				{Name: "Apple", Amount: 5, Price: 10.25},
-			},
-			expected: true,
-		},
-		{
-			name:  "Invalid Mismatch",
-			total: 50.50,
-			items: []internal.Item{
-				{Name: "Apple", Amount: 3, Price: 10.25}, // 3 * 10.25 = 30.75
-			},
-			expected: false,
-		},
-		{
-			name:     "Empty Items List",
-			total:    0.00,
-			items:    []internal.Item{},
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ticketIsValid(tt.total, tt.items)
-			if result != tt.expected {
-				t.Errorf("Expected %v for total %.2f and items %v, got %v",
-					tt.expected, tt.total, tt.items, result)
-			}
-		})
-	}
-}
 
 // Tests for Total Correct Logic (Math Helper)
 func TestIsTotalCorrect(t *testing.T) {

@@ -1,7 +1,6 @@
 package mercadona
 
 import (
-	"autoGrocery/internal"
 	"testing"
 	"time"
 
@@ -54,81 +53,6 @@ func Test_isTotalCorrect(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isTotalCorrect(tt.args.qty, tt.args.pricePer, tt.args.totalFound); got != tt.want {
 				t.Errorf("isTotalCorrect() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_ticketIsValid(t *testing.T) {
-	type args struct {
-		total float64
-		items []internal.Item
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{
-			name: "valid ticket - single item",
-			args: args{
-				total: 2.50,
-				items: []internal.Item{{Name: "Milk", Amount: 1, Price: 2.50}},
-			},
-			want: true,
-		},
-		{
-			name: "valid ticket - multiple items",
-			args: args{
-				total: 5.70,
-				items: []internal.Item{
-					{Name: "Milk", Amount: 1, Price: 2.50},
-					{Name: "Bread", Amount: 2, Price: 1.60},
-				},
-			},
-			want: true,
-		},
-		{
-			name: "invalid ticket - total too high",
-			args: args{
-				total: 10.00,
-				items: []internal.Item{{Name: "Milk", Amount: 1, Price: 2.50}},
-			},
-			want: false,
-		},
-		{
-			name: "invalid ticket - total too low",
-			args: args{
-				total: 1.00,
-				items: []internal.Item{{Name: "Milk", Amount: 2, Price: 2.50}},
-			},
-			want: false,
-		},
-		{
-			name: "empty items with zero total",
-			args: args{
-				total: 0.00,
-				items: []internal.Item{},
-			},
-			want: true,
-		},
-		{
-			name: "floating point accumulation rounds correctly",
-			args: args{
-				total: 1.50,
-				items: []internal.Item{
-					{Name: "Item A", Amount: 1, Price: 0.50},
-					{Name: "Item B", Amount: 1, Price: 0.50},
-					{Name: "Item C", Amount: 1, Price: 0.50},
-				},
-			},
-			want: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ticketIsValid(tt.args.total, tt.args.items); got != tt.want {
-				t.Errorf("ticketIsValid() = %v, want %v", got, tt.want)
 			}
 		})
 	}
