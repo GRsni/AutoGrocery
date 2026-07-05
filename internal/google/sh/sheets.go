@@ -169,13 +169,13 @@ func GetLastWrittenRowIndex(manager Manager) int {
 	return lastRow
 }
 
-func GetLastEntryForStore(tickets []Entry, shopName string) Entry {
+func GetLastEntryForStore(tickets []Entry, shopName string) *Entry {
 	for in := len(tickets) - 1; in >= 0; in-- {
 		if tickets[in].Store == shopName {
-			return tickets[in]
+			return &tickets[in]
 		}
 	}
-	return Entry{}
+	return nil
 }
 
 func WriteToSheet(manager Manager, valueRange *sheets.ValueRange, firstRow int) int {

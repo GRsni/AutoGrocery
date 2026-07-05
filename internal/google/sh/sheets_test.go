@@ -173,7 +173,7 @@ func TestGetLastEntryForStore(t *testing.T) {
 	}{
 		{"returns last MERCADONA", tickets, "MERCADONA", "MERCADONA", 9},
 		{"returns last DIA",       tickets, "DIA",       "DIA",       13},
-		{"store not present",      tickets, "CARREFOUR", "",          0},
+		{"store not present",      tickets, "CARREFOUR", "",          -1},
 		{"empty slice",            []Entry{}, "MERCADONA", "",        0},
 		{"single matching entry",  tickets[:1], "MERCADONA", "MERCADONA", 1},
 	}
@@ -181,11 +181,18 @@ func TestGetLastEntryForStore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := GetLastEntryForStore(tt.tickets, tt.shop)
-			if got.Store != tt.wantStore {
-				t.Errorf("Store = %q, want %q", got.Store, tt.wantStore)
+			if tt.wantRow == -1 && got != nil {
+				t.Errorf("Ticket = %v, want nil", got)
 			}
-			if got.FirstRow != tt.wantRow {
-				t.Errorf("FirstRow = %d, want %d", got.FirstRow, tt.wantRow)
+			if got != nil {
+				if got.Store != tt.wantStore {
+					t.Errorf("Store = %q, want %q", got.Store, tt.wantStore)
+				}
+				if got.FirstRow != tt.wantRow {
+					if got != nil {
+						t.Errorf("FirstRow = %d, want %d", got.FirstRow, tt.wantRow)
+					}
+				}
 			}
 		})
 	}

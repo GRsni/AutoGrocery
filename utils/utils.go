@@ -35,9 +35,7 @@ func StringToFloat(str string, precision int) float64 {
 }
 
 func ParseQty(qty string) float64 {
-	strippedQty := strings.Replace(qty, "ud", "", -1)
-	strippedQty = strings.Replace(strippedQty, "kg", "", -1)
-	return StringToFloat(strippedQty, 2)
+	return ParseQtyWithPrecision(qty, 2)
 }
 
 func ParseQtyWithPrecision(qty string, precision int) float64 {
