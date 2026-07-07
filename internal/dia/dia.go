@@ -270,27 +270,32 @@ func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
 		return nil
 	}
 	tickets := make([]internal.Ticket, 0)
-	for _, ticket := range ticketElements {
-		text, _ := ticket.Text()
-		dateFromTicket, err := getDateFromTicket(text)
+	for _, ticketElement := range ticketElements {
+		text, _ := ticketElement.Text()
+		ticketDate, err := getDateFromTicket(text)
 		if err != nil {
 			return nil
 		}
-		if dateFromTicket.After(lastFound) {
-			ticket := getTicketDetails(ticket, page, dateFromTicket)
-			tickets = append(tickets, ticket)
+		if lastFound.After(ticketDate) {
+			slog.Debug("Last ticket is older than ticket found, exiting", "STORE", constants.DIA)
+			break
+		}
+		ticket := getTicketDetails(ticketElement, page, ticketDate)
+		if ticket != nil {
+			tickets = append(tickets, *ticket)
 			slog.Debug(ticket.TicketToStr())
 		}
+
 	}
 
 	return tickets
 }
 
-func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time) internal.Ticket {
+func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time) *internal.Ticket {
 	ticketBtnFound, ticketBtn, err := ticketElement.Has("[data-test-id='button-action']")
 	if err != nil {
 		slog.Debug("Cannot find ticket button, skipping", "ERROR", err)
-		return internal.Ticket{}
+		return nil
 	}
 	if ticketBtnFound {
 		ticketBtn.Hover()
@@ -306,7 +311,7 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 	ticketId, err := page.MustElement(".ticket-detail-header__simplified-invoice").Text()
 	if err != nil {
 		slog.Debug("Cannot find ticket id, skipping")
-		return internal.Ticket{}
+		return nil
 	}
 	ticketId = strings.Replace(ticketId, "Factura simplificada Nº ", "", 1)
 
@@ -320,14 +325,14 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 
 	if !items.IsTotalValid(ticketTotal) {
 		slog.Warn("Ticket price does not match up, discarding")
-		return internal.Ticket{}
+		return nil
 	}
 
 	// Close ticket
 	ticketClose, err := page.Element("[data-test-id='ticket-detail-modal-cross']")
 	if err != nil {
 		slog.Debug("Cannot find ticket button, skipping")
-		return internal.Ticket{}
+		return nil
 	}
 	ticketClose.Hover()
 	humanDelay()
@@ -335,7 +340,7 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 
 	humanDelay()
 
-	return internal.Ticket{Id: ticketId, Total: ticketTotal, Items: items, Date: date, Store: constants.DIA}
+	return &internal.Ticket{Id: ticketId, Total: ticketTotal, Items: items, Date: date, Store: constants.DIA}
 }
 
 func getDateFromTicket(ticketString string) (content time.Time, err error) {

@@ -24,16 +24,21 @@ func GetTicketList(manager gm.Manager, lastFound time.Time) []internal.Ticket {
 	messages := gm.GetMessagesFromLabel(manager, GmailLabelId)
 
 	for _, m := range messages {
-		dateFromTicket, err := getDateFromTicket(m)
+		ticketDate, err := getDateFromTicket(m)
 		if err != nil {
 			slog.Warn("Unable to get date from ticket filename, skipping", "ERROR", err)
 			continue
 		}
-		if dateFromTicket.After(lastFound) {
-			ticket := getTicketDetails(manager, m, dateFromTicket)
-			tickets = append(tickets, ticket)
+		if lastFound.After(ticketDate) {
+			slog.Debug("Last ticket is older than ticket found, exiting", "STORE", constants.MERCADONA)
+			break
+		}
+		ticket := getTicketDetails(manager, m, ticketDate)
+		if ticket !=nil {
+			tickets = append(tickets, *ticket)
 			slog.Info(ticket.TicketToStr())
 		}
+
 	}
 	return tickets
 }
@@ -46,7 +51,7 @@ func getDateFromTicket(message *gmail.Message) (time.Time, error) {
 	return date, nil
 }
 
-func getTicketDetails(manager gm.Manager, message *gmail.Message, ticketDate time.Time) internal.Ticket {
+func getTicketDetails(manager gm.Manager, message *gmail.Message, ticketDate time.Time) *internal.Ticket {
 	filenameParts := strings.Split(message.Payload.Parts[1].Filename, " ")
 	id := getTicketId(message)
 
@@ -55,9 +60,9 @@ func getTicketDetails(manager gm.Manager, message *gmail.Message, ticketDate tim
 
 	if !items.IsTotalValid(ticketTotal) {
 		slog.Warn("Ticket price does not match up, discarding")
-		return internal.Ticket{}
+		return nil
 	}
-	return internal.Ticket{
+	return &internal.Ticket{
 		Items: items,
 		Id:    id,
 		Total: ticketTotal,

@@ -152,14 +152,6 @@ func handle2FA(manager gm.Manager, page *rod.Page, err error) {
 	if err2FA != nil {
 		slog.Error("Error while fetching 2FA code", "ERROR", err2FA)
 	}
-	//var framePage *rod.Page
-	//for _, f := range page.MustElements("iframe") {
-	//	src, _ := f.Attribute("src")
-	//	if src != nil && strings.Contains(*src, "/access") {
-	//		framePage = f.MustFrame()
-	//		break
-	//	}
-	//}
 
 	page.Mouse.MustMoveTo(850, 450).MustClick("left")
 	keys := make([]input.Key, 0, len(code))
@@ -204,7 +196,7 @@ func get2FACode(manager gm.Manager) (string, error) {
 	var messages []*gmail.Message
 	for len(messages) == 0 {
 		messages = gm.GetMessagesFromLabel(manager, Gmail2FALabelId)
-		time.Sleep(time.Duration(500) * time.Millisecond)
+		time.Sleep(1 * time.Second)
 	}
 
 	latest := messages[0]
@@ -233,17 +225,22 @@ func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
 		}
 		row := pageRows[i]
 		dateStr := strings.TrimSpace(row.MustElement(`p.date-field`).MustText())
-		date, errParseDate := time.Parse(constants.TicketDateFormat, dateStr)
+		ticketDate, errParseDate := time.Parse(constants.TicketDateFormat, dateStr)
 		if errParseDate != nil {
 			slog.Warn("Unable to get ticket date", "ERROR", errParseDate)
 			continue
 		}
-		if date.After(lastFound) {
-			price := row.MustElement(`div.price-field p`).MustText()
-			ticket := getTicketDetails(row, page, date, utils.ParsePrice(price))
-			tickets = append(tickets, ticket)
+		if lastFound.After(ticketDate) {
+			slog.Debug("Last ticket is older than ticket found, exiting", "STORE", constants.CARREFOUR)
+			break
+		}
+		price := row.MustElement(`div.price-field p`).MustText()
+		ticket := getTicketDetails(row, page, ticketDate, utils.ParsePrice(price))
+		if ticket != nil {
+			tickets = append(tickets, *ticket)
 			slog.Debug(ticket.TicketToStr())
 		}
+
 	}
 
 	return tickets
@@ -259,7 +256,7 @@ func getNumberOfTickets(page *rod.Page) (int, error) {
 	return len(pageRows), nil
 }
 
-func getTicketDetails(row *rod.Element, page *rod.Page, date time.Time, total float64) internal.Ticket {
+func getTicketDetails(row *rod.Element, page *rod.Page, date time.Time, total float64) *internal.Ticket {
 	row.MustClick().MustWaitLoad()
 	page.MustWaitIdle().MustWaitIdle()
 	time.Sleep(5 * time.Second)
@@ -267,7 +264,7 @@ func getTicketDetails(row *rod.Element, page *rod.Page, date time.Time, total fl
 	hasShowMore, showMoreBtn, err := page.HasR("a", "Mostrar todos")
 	if err != nil {
 		slog.Debug("Error while finding show more button", "ERROR", err)
-		return internal.Ticket{}
+		return nil
 	}
 	if hasShowMore {
 		showMoreBtn.Hover()
@@ -276,15 +273,15 @@ func getTicketDetails(row *rod.Element, page *rod.Page, date time.Time, total fl
 	}
 	humanDelay()
 
-	items := getItemList(page)
+	items := getItemList(page, hasShowMore)
 
 	if !items.IsTotalValid(total) {
 		slog.Warn("Ticket price does not match up, discarding")
 		closeTicketPage(page)
-		return internal.Ticket{}
+		return nil
 	}
 	closeTicketPage(page)
-	return internal.Ticket{Id: date.String(), Total: total, Items: items, Date: date, Store: constants.CARREFOUR}
+	return &internal.Ticket{Id: date.String(), Total: total, Items: items, Date: date, Store: constants.CARREFOUR}
 }
 
 func closeTicketPage(page *rod.Page) {
@@ -297,9 +294,13 @@ func closeTicketPage(page *rod.Page) {
 	time.Sleep(5 * time.Second)
 }
 
-func getItemList(page *rod.Page) internal.Items {
+func getItemList(page *rod.Page, hasShowMore bool) internal.Items {
 	items := make([]internal.Item, 0, 1)
-	rows := page.MustElements(`table.table-white tbody tr:not(:last-child)`)
+	rowsSelector := "table.table-white tbody tr"
+	if hasShowMore {
+		rowsSelector += ":not(:last-child)"
+	}
+	rows := page.MustElements(rowsSelector)
 
 	for _, row := range rows {
 		name := row.MustElement(`td:first-child`).MustText()

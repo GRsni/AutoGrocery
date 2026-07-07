@@ -65,7 +65,7 @@ func (items Items) IsTotalValid(total float64) bool {
 	itemsTotal := 0.0
 
 	for _, item := range items {
-		itemsTotal += item.Amount * item.Price
+		itemsTotal += utils.ToFixed(item.Amount * item.Price, 2)
 	}
 
 	return utils.FloatsEqual(total, utils.ToFixed(itemsTotal, 2))

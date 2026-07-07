@@ -61,7 +61,7 @@ func main() {
 	newTicketsMap := getAllTicketsFromStores(gmailManager, ticketsFromSheet, firstOfMonth)
 
 	newTicketsList := CombineTickets(newTicketsMap)
-	slog.Info("New tickets found", "TICKETS", newTicketsList)
+	slog.Info("New tickets collected", "TICKETS", newTicketsList)
 
 	uploadNewTickets(newTicketsList, sheetsManager, lastWrittenRow)
 
@@ -92,18 +92,24 @@ func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firs
 		lastEntryFromSheets := sh.GetLastEntryForStore(sheetEntries, store)
 		lastDate := getDateForLastTicket(lastEntryFromSheets, store, firstOfMonth)
 
-		switch store {
-		case constants.MERCADONA:
-			allTickets[constants.MERCADONA] = getMercadonaTickets(gmManager, lastDate)
-			break
-		case constants.DIA:
-			allTickets[constants.DIA] = getDiaTickets(lastDate)
-			break
-		case constants.CARREFOUR:
-			allTickets[constants.CARREFOUR] = getCarrefourTickets(gmManager, lastDate)
-		}
+		newFoundTickets := getTicketsForStore(gmManager, store, lastDate)
+		allTickets[store] = newFoundTickets
 	}
 	return allTickets
+}
+
+func getTicketsForStore(gmManager gm.Manager, store string, lastDate time.Time) []internal.Ticket {
+	var newFoundTickets []internal.Ticket
+	switch store {
+	case constants.MERCADONA:
+		newFoundTickets = getMercadonaTickets(gmManager, lastDate)
+	case constants.DIA:
+		newFoundTickets = getDiaTickets(lastDate)
+	case constants.CARREFOUR:
+		newFoundTickets = getCarrefourTickets(gmManager, lastDate)
+	}
+	slog.Info("Found new tickets", "TICKETS", len(newFoundTickets), "STORE", store)
+	return newFoundTickets
 }
 
 func getDateForLastTicket(lastEntryFromSheets *sh.Entry, store string, firstOfMonth time.Time) time.Time {
@@ -120,7 +126,6 @@ func getDateForLastTicket(lastEntryFromSheets *sh.Entry, store string, firstOfMo
 
 func getMercadonaTickets(manager gm.Manager, lastDate time.Time) []internal.Ticket {
 	tickets := mercadona.GetTicketList(manager, lastDate)
-	slog.Info("Found new tickets", "TICKETS", len(tickets), "STORE", constants.MERCADONA)
 	return tickets
 }
 
@@ -131,7 +136,6 @@ func getDiaTickets(lastDate time.Time) []internal.Ticket {
 		return []internal.Ticket{}
 	}
 	newDiaTickets := dia.GetTicketList(page, lastDate)
-	slog.Info("Found new tickets", "TICKETS", len(newDiaTickets), "STORE", constants.DIA)
 	cleanup()
 	page.Close()
 	return newDiaTickets
@@ -144,7 +148,6 @@ func getCarrefourTickets(manager gm.Manager, lastDate time.Time) []internal.Tick
 		return []internal.Ticket{}
 	}
 	newTickets := carrefour.GetTicketList(page, lastDate)
-	slog.Info("Found new tickets", "TICKETS", len(newTickets), "STORE", constants.CARREFOUR)
 	cleanup()
 	page.Close()
 	return newTickets
