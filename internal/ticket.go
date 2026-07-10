@@ -61,6 +61,10 @@ func (ticket Ticket) TicketToStr() string {
 	return fmt.Sprintf("%s Ticket: %s, total: %f€, items: %s", ticket.Store, ticket.Id, ticket.Total, fmt.Sprint(ticket.Items))
 }
 
+func (items Item) ItemToStr() string {
+	return ""
+}
+
 func (items Items) IsTotalValid(total float64) bool {
 	itemsTotal := 0.0
 
