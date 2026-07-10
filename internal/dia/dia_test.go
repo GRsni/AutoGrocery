@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"autoGrocery/utils"
 )
 
 // Helper to create temporary file
@@ -154,43 +156,79 @@ func TestLoadSessionFromCookies(t *testing.T) {
 	}
 }
 
-func TestGetDateFromTicket(t *testing.T) {
+func TestGetDateAndTotal(t *testing.T) {
+	d := func(day, month, year int) time.Time {
+		return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	}
+
 	tests := []struct {
 		name      string
 		input     string
 		expectErr bool
-		expected  time.Time // Only useful if parsing succeeds
+		expectedDate time.Time
+		expectedTotal float64
 	}{
 		{
-			name:      "Valid Date",
-			input:     "Header\n15/02/2023\nFooter",
-			expectErr: false,
+			name:        "Valid Date",
+			input:       "Header\n15/02/2023\n50.00",
+			expectErr:   false,
+			expectedDate: d(15, 2, 2023),
+			expectedTotal: 50.0,
 		},
 		{
-			name:      "Invalid Date Format",
-			input:     "Header\nNot A Date\nFooter",
-			expectErr: true,
+			name:        "Valid Date with Spaces",
+			input:       "Ticket Details\n 15/02/2023 \n45.99",
+			expectErr:   false,
+			expectedDate: d(15, 2, 2023),
+			expectedTotal: 45.99,
 		},
 		{
-			name:      "Empty Input",
-			input:     "",
-			expectErr: true,
+			name:        "Valid Date - End of Year",
+			input:       "Header\n31/12/2024\n100.00",
+			expectErr:   false,
+			expectedDate: d(31, 12, 2024),
+			expectedTotal: 100.0,
 		},
 		{
-			name:      "Missing Newline (Header only)",
-			input:     "Just Header",
-			expectErr: true,
+			name:        "Invalid Date Format",
+			input:       "Header\nNot A Date\nFooter",
+			expectErr:   true,
+			expectedDate: time.Time{},
+			expectedTotal: 0.0,
 		},
 		{
-			name:      "Valid Date with Spaces",
-			input:     "Ticket Details\n 15/02/2023 \nEnd",
-			expectErr: false,
+			name:        "Empty Input",
+			input:       "",
+			expectErr:   true,
+			expectedDate: time.Time{},
+			expectedTotal: 0.0,
+		},
+		{
+			name:        "Missing Newline (Header only)",
+			input:       "Just Header",
+			expectErr:   true,
+			expectedDate: time.Time{},
+			expectedTotal: 0.0,
+		},
+		{
+			name:        "Valid Date with Euro Symbol",
+			input:       "Ticket\n15/04/2024\n€75.50",
+			expectErr:   false,
+			expectedDate: d(15, 4, 2024),
+			expectedTotal: 75.5,
+		},
+		{
+			name:        "Price with Comma (European format)",
+			input:       "Header\n20/06/2024\n30,99",
+			expectErr:   false,
+			expectedDate: d(20, 6, 2024),
+			expectedTotal: 30.99,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, _, err := getDateAndTotal(tt.input)
+			result, total, err := getDateAndTotal(tt.input)
 
 			if tt.expectErr && err == nil {
 				t.Error("Expected error but got nil")
@@ -199,11 +237,17 @@ func TestGetDateFromTicket(t *testing.T) {
 				t.Errorf("Unexpected error: %v", err)
 			}
 
-			// Optional: Check if the date is reasonable (year > 0) for valid cases
 			if !tt.expectErr && !result.IsZero() {
 				if result.Year() < 2000 || result.Year() > time.Now().Year()+50 {
 					t.Errorf("Date seems invalid: %v", result)
 				}
+				if !result.Equal(tt.expectedDate) {
+					t.Errorf("Date = %v, want %v", result, tt.expectedDate)
+				}
+			}
+
+			if !tt.expectErr && !utils.FloatsEqual(total, tt.expectedTotal) {
+				t.Errorf("Total = %v, want %v", total, tt.expectedTotal)
 			}
 		})
 	}
