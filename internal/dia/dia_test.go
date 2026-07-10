@@ -190,7 +190,7 @@ func TestGetDateFromTicket(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := getDateFromTicket(tt.input)
+			result, err := getDateAndTotal(tt.input)
 
 			if tt.expectErr && err == nil {
 				t.Error("Expected error but got nil")

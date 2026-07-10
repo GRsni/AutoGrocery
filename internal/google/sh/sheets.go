@@ -22,6 +22,7 @@ type Entry struct {
 	Date     time.Time
 	Store    string
 	FirstRow int
+	Total float64
 }
 
 func EntryToStr(ticket Entry) string {

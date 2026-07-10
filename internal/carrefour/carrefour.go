@@ -3,6 +3,7 @@ package carrefour
 import (
 	"autoGrocery/internal"
 	"autoGrocery/internal/google/gm"
+	"autoGrocery/internal/google/sh"
 	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"encoding/json"
@@ -209,7 +210,7 @@ func get2FACode(manager gm.Manager) (string, error) {
 	return code, nil
 }
 
-func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
+func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry) []internal.Ticket {
 
 	var totalRows, errGetRowsNumber = getNumberOfTickets(page)
 	if errGetRowsNumber != nil {
@@ -230,12 +231,18 @@ func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
 			slog.Warn("Unable to get ticket date", "ERROR", errParseDate)
 			continue
 		}
-		if lastFound.After(ticketDate) {
+		ticketDateComparison := lastEntryToCompare.Date.Compare(ticketDate)
+		if ticketDateComparison > 0 {
 			slog.Debug("Last ticket is older than ticket found, exiting", "STORE", constants.CARREFOUR)
 			break
 		}
-		price := row.MustElement(`div.price-field p`).MustText()
-		ticket := getTicketDetails(row, page, ticketDate, utils.ParsePrice(price))
+		ticketTotal := utils.ParsePrice(row.MustElement(`div.price-field p`).MustText())
+		if ticketDateComparison == 0 && utils.FloatsEqual(ticketTotal, lastEntryToCompare.Total) {
+			slog.Info("New ticket found has same date and total as last stored ticket, discarding", "DATE", ticketDate, "TOTAL", ticketTotal)
+			continue
+		}
+
+		ticket := getTicketDetails(row, page, ticketDate, ticketTotal)
 		if ticket != nil {
 			tickets = append(tickets, *ticket)
 			slog.Debug(ticket.TicketToStr())

@@ -24,7 +24,6 @@ const CredsFilePath = "config/credentials/secrets.json"
 const TokenFilePath = "config/credentials/token.json"
 const CookiesPath = "config/credentials/cookies-www-dia-es.txt"
 
-
 func setupLogger() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -90,64 +89,62 @@ func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firs
 
 	for _, store := range []string{constants.MERCADONA, constants.DIA, constants.CARREFOUR} {
 		lastEntryFromSheets := sh.GetLastEntryForStore(sheetEntries, store)
-		lastDate := getDateForLastTicket(lastEntryFromSheets, store, firstOfMonth)
+		lastEntryToCompare := getLastEntryToCompare(lastEntryFromSheets, store, firstOfMonth)
 
-		newFoundTickets := getTicketsForStore(gmManager, store, lastDate)
+		newFoundTickets := getTicketsForStore(gmManager, store, lastEntryToCompare)
 		allTickets[store] = newFoundTickets
 	}
 	return allTickets
 }
 
-func getTicketsForStore(gmManager gm.Manager, store string, lastDate time.Time) []internal.Ticket {
+func getTicketsForStore(gmManager gm.Manager, store string, lastEntryToCompare sh.Entry) []internal.Ticket {
 	var newFoundTickets []internal.Ticket
 	switch store {
 	case constants.MERCADONA:
-		newFoundTickets = getMercadonaTickets(gmManager, lastDate)
+		newFoundTickets = getMercadonaTickets(gmManager, lastEntryToCompare)
 	case constants.DIA:
-		newFoundTickets = getDiaTickets(lastDate)
+		newFoundTickets = getDiaTickets(lastEntryToCompare)
 	case constants.CARREFOUR:
-		newFoundTickets = getCarrefourTickets(gmManager, lastDate)
+		newFoundTickets = getCarrefourTickets(gmManager, lastEntryToCompare)
 	}
 	slog.Info("Found new tickets", "TICKETS", len(newFoundTickets), "STORE", store)
 	return newFoundTickets
 }
 
-func getDateForLastTicket(lastEntryFromSheets *sh.Entry, store string, firstOfMonth time.Time) time.Time {
-	var lastDate time.Time
+func getLastEntryToCompare(lastEntryFromSheets *sh.Entry, store string, firstOfMonth time.Time) sh.Entry {
 	if lastEntryFromSheets == nil {
 		slog.Info("No last ticket found for store, using first of month date", "STORE", store, "DATE", firstOfMonth)
-		lastDate = firstOfMonth
-	} else {
-		slog.Info("Last ticket found for store, using entry date", "STORE", store, "DATE", lastEntryFromSheets.Date)
-		lastDate = lastEntryFromSheets.Date
+		return sh.Entry{Date: firstOfMonth, Total: 0}
 	}
-	return lastDate
+
+	slog.Info("Last ticket found for store, using entry date", "STORE", store, "DATE", lastEntryFromSheets.Date)
+	return *lastEntryFromSheets
 }
 
-func getMercadonaTickets(manager gm.Manager, lastDate time.Time) []internal.Ticket {
-	tickets := mercadona.GetTicketList(manager, lastDate)
+func getMercadonaTickets(manager gm.Manager, lastEntryToCompare sh.Entry) []internal.Ticket {
+	tickets := mercadona.GetTicketList(manager, lastEntryToCompare)
 	return tickets
 }
 
-func getDiaTickets(lastDate time.Time) []internal.Ticket {
+func getDiaTickets(lastEntryToCompare sh.Entry) []internal.Ticket {
 	page, cleanup, err := dia.LoginToDia(CredsFilePath, CookiesPath)
 	if err != nil {
 		cleanup()
 		return []internal.Ticket{}
 	}
-	newDiaTickets := dia.GetTicketList(page, lastDate)
+	newDiaTickets := dia.GetTicketList(page, lastEntryToCompare)
 	cleanup()
 	page.Close()
 	return newDiaTickets
 }
 
-func getCarrefourTickets(manager gm.Manager, lastDate time.Time) []internal.Ticket {
+func getCarrefourTickets(manager gm.Manager, lastEntryToCompare sh.Entry) []internal.Ticket {
 	page, cleanup, err := carrefour.LoginToCarrefour(manager, CredsFilePath)
 	if err != nil {
 		cleanup()
 		return []internal.Ticket{}
 	}
-	newTickets := carrefour.GetTicketList(page, lastDate)
+	newTickets := carrefour.GetTicketList(page, lastEntryToCompare)
 	cleanup()
 	page.Close()
 	return newTickets

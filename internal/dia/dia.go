@@ -2,6 +2,7 @@ package dia
 
 import (
 	"autoGrocery/internal"
+	"autoGrocery/internal/google/sh"
 	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"bufio"
@@ -245,7 +246,7 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 	return page, cleanup, nil
 }
 
-func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
+func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry) []internal.Ticket {
 	ticketLisFound, ticketListLink, err := page.Has(".global-info__orders-link-content__button")
 	if err != nil {
 		slog.Debug("Error finding ticket list link", "ERROR", err)
@@ -272,15 +273,20 @@ func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
 	tickets := make([]internal.Ticket, 0)
 	for _, ticketElement := range ticketElements {
 		text, _ := ticketElement.Text()
-		ticketDate, err := getDateFromTicket(text)
-		if err != nil {
+		ticketDate, ticketTotal,  errTicketDetails := getDateAndTotal(text)
+		if errTicketDetails != nil {
 			return nil
 		}
-		if lastFound.After(ticketDate) {
+		ticketDateComparison := lastEntryToCompare.Date.Compare(ticketDate)
+		if ticketDateComparison > 0 {
 			slog.Debug("Last ticket is older than ticket found, exiting", "STORE", constants.DIA)
 			break
 		}
-		ticket := getTicketDetails(ticketElement, page, ticketDate)
+		if ticketDateComparison == 0 && utils.FloatsEqual(ticketTotal, lastEntryToCompare.Total) {
+			slog.Info("New ticket found has same date and total as last stored ticket, discarding", "DATE", ticketDate, "TOTAL", ticketTotal)
+			continue
+		}
+		ticket := getTicketDetails(ticketElement, page, ticketDate, ticketTotal)
 		if ticket != nil {
 			tickets = append(tickets, *ticket)
 			slog.Debug(ticket.TicketToStr())
@@ -291,7 +297,7 @@ func GetTicketList(page *rod.Page, lastFound time.Time) []internal.Ticket {
 	return tickets
 }
 
-func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time) *internal.Ticket {
+func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time, ticketTotal float64 ) *internal.Ticket {
 	ticketBtnFound, ticketBtn, err := ticketElement.Has("[data-test-id='button-action']")
 	if err != nil {
 		slog.Debug("Cannot find ticket button, skipping", "ERROR", err)
@@ -314,9 +320,6 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 		return nil
 	}
 	ticketId = strings.Replace(ticketId, "Factura simplificada Nº ", "", 1)
-
-	ticketTotalStr, err := page.MustElement("[data-test-id='ticket-summary-total-final-amount-number']").Text()
-	ticketTotal := utils.ParsePrice(ticketTotalStr)
 
 	items, err := getItemList(page)
 	if err != nil {
@@ -343,17 +346,18 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 	return &internal.Ticket{Id: ticketId, Total: ticketTotal, Items: items, Date: date, Store: constants.DIA}
 }
 
-func getDateFromTicket(ticketString string) (content time.Time, err error) {
+func getDateAndTotal(ticketString string) (extractedDate time.Time, ticketTotal float64, err error) {
 	textLines := strings.Split(ticketString, "\n")
 	if len(textLines) <= 1 {
-		return time.Unix(0, 0), fmt.Errorf("ticket string doesn't have enough lines")
+		return time.Unix(0, 0), 0.0, fmt.Errorf("ticket string doesn't have enough lines")
 	}
-	extractedDate, err := time.Parse(constants.TicketDateFormat, strings.TrimSpace(textLines[1]))
+	extractedDate, err = time.Parse(constants.TicketDateFormat, strings.TrimSpace(textLines[1]))
 	if err != nil {
 		slog.Debug("Error parsing date", "ERROR", err)
 		return
 	}
-	return extractedDate, nil
+	total := utils.ParsePrice(textLines[2])
+	return extractedDate, total, nil
 }
 
 func getItemList(page *rod.Page) (internal.Items, error) {

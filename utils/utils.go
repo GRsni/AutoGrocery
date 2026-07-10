@@ -48,6 +48,7 @@ func ParseQtyWithPrecision(qty string, precision int) float64 {
 func ParsePrice(price string) float64 {
 	strippedPrice := strings.Replace(price, "€", "", -1)
 	strippedPrice = strings.Replace(strippedPrice, "/kg", "", -1)
+	strippedPrice = strings.Replace(strippedPrice, ",", ".", -1)
 	return StringToFloat(strippedPrice, 2)
 }
 

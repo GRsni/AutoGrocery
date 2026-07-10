@@ -3,6 +3,7 @@ package mercadona
 import (
 	"autoGrocery/internal"
 	"autoGrocery/internal/google/gm"
+	"autoGrocery/internal/google/sh"
 	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"bytes"
@@ -18,7 +19,7 @@ import (
 const GmailLabelId = "Label_2031551581397134603"
 const TicketHeaderRows = 7
 
-func GetTicketList(manager gm.Manager, lastFound time.Time) []internal.Ticket {
+func GetTicketList(manager gm.Manager, lastEntryToCompare sh.Entry) []internal.Ticket {
 	tickets := make([]internal.Ticket, 0)
 
 	messages := gm.GetMessagesFromLabel(manager, GmailLabelId)
@@ -29,18 +30,31 @@ func GetTicketList(manager gm.Manager, lastFound time.Time) []internal.Ticket {
 			slog.Warn("Unable to get date from ticket filename, skipping", "ERROR", err)
 			continue
 		}
-		if lastFound.After(ticketDate) {
+		ticketDateComparison := lastEntryToCompare.Date.Compare(ticketDate)
+		if ticketDateComparison > 0 {
 			slog.Debug("Last ticket is older than ticket found, exiting", "STORE", constants.MERCADONA)
 			break
 		}
-		ticket := getTicketDetails(manager, m, ticketDate)
-		if ticket !=nil {
+		ticketTotal := getTicketTotal(m)
+		if ticketDateComparison == 0 && utils.FloatsEqual(ticketTotal, lastEntryToCompare.Total) {
+			slog.Info("New ticket found has same date and total as last stored ticket, discarding", "DATE", ticketDate, "TOTAL", ticketTotal)
+			continue
+		}
+
+		id := getTicketId(m)
+		ticket := getTicketDetails(manager, m, ticketDate, id, ticketTotal)
+		if ticket != nil {
 			tickets = append(tickets, *ticket)
 			slog.Info(ticket.TicketToStr())
 		}
 
 	}
 	return tickets
+}
+
+func getTicketTotal(m *gmail.Message) float64 {
+	filenameParts := strings.Split(m.Payload.Parts[1].Filename, " ")
+	return utils.StringToFloat(filenameParts[2], 2)
 }
 func getDateFromTicket(message *gmail.Message) (time.Time, error) {
 	filenameParts := strings.Split(message.Payload.Parts[1].Filename, " ")
@@ -51,11 +65,7 @@ func getDateFromTicket(message *gmail.Message) (time.Time, error) {
 	return date, nil
 }
 
-func getTicketDetails(manager gm.Manager, message *gmail.Message, ticketDate time.Time) *internal.Ticket {
-	filenameParts := strings.Split(message.Payload.Parts[1].Filename, " ")
-	id := getTicketId(message)
-
-	ticketTotal := utils.StringToFloat(filenameParts[2], 2)
+func getTicketDetails(manager gm.Manager, message *gmail.Message, ticketDate time.Time, id string, ticketTotal float64) *internal.Ticket {
 	items := getTicketItems(manager, message)
 
 	if !items.IsTotalValid(ticketTotal) {
