@@ -22,7 +22,8 @@ type Entry struct {
 	Date     time.Time
 	Store    string
 	FirstRow int
-	Total float64
+	LastRow  int
+	Total    float64
 }
 
 func EntryToStr(ticket Entry) string {
@@ -143,26 +144,75 @@ func GetSheetTicketList(manager Manager, cellRange string) ([]Entry, error) {
 	if len(resp.Values) == 0 {
 		slog.Info("No data found in searched sheets range.")
 	} else {
-		for i, row := range resp.Values {
-			if len(row) >= 2 {
-				date := utils.StringToDate(utils.ExtractString(row[0]))
-				ticket := Entry{Date: date, Store: utils.ExtractString(row[1]), FirstRow: i}
-				tickets = append(tickets, ticket)
+		for rowIndex := 0; rowIndex < len(resp.Values); rowIndex++ {
+			row := resp.Values[rowIndex]
+			if len(row) < 6 {
+				return nil, fmt.Errorf("sheet only supports 6 row setup, found %v rows", len(row))
 			}
+			if isRowEmpty(row) {
+				slog.Debug("Empty row found, no more tickets")
+				break
+			}
+			ticket, finalRow, errGetSheetEntry := getEntryFromSheet(resp, rowIndex)
+			if errGetSheetEntry != nil {
+				slog.Warn("Error while trying to get entry from sheet", "ERROR", errGetSheetEntry)
+				rowIndex = finalRow
+				continue
+			}
+			rowIndex = finalRow
+			tickets = append(tickets, *ticket)
 		}
 	}
 	return tickets, nil
 }
 
-func GetLastWrittenRowIndex(manager Manager) int {
-	readRange := fmt.Sprintf("%s!E2:300", manager.PageName)
+func getEntryFromSheet(resp *sheets.ValueRange, startingRow int) (*Entry, int, error) {
+	var date time.Time
+	var store string
+	var total float64
+	var finalRow int
+	row := resp.Values[startingRow]
+	if len(utils.ExtractString(row[0])) > 0 && len(utils.ExtractString(row[1])) > 0 {
+		// Found a new ticket, iterate until TOTAL found
+		date = utils.StringToDate(utils.ExtractString(row[0]))
+		store = utils.ExtractString(row[1])
+		for j := startingRow + 1; j < len(resp.Values); j++ {
+			row = resp.Values[j]
+			if utils.ExtractString(row[4]) != "TOTAL" {
+				continue
+			}
+			total = utils.ParsePrice(utils.ExtractString(row[5]))
+			finalRow = j
+			break
+
+		}
+		if finalRow == 0 {
+			return nil, len(resp.Values), fmt.Errorf("unable to find TOTAL row in rest of sheet")
+		}
+	}
+	ticket := Entry{Date: date, Store: store, FirstRow: startingRow + 2, LastRow: finalRow + 2, Total: total}
+	return &ticket, finalRow, nil
+}
+
+func isRowEmpty(row []any) bool {
+	size := len(row)
+	for i := 0; i < size-1; i++ {
+		if len(utils.ExtractString(row[i])) != 0 {
+			return false
+		}
+	}
+	return utils.ExtractString(row[size-1]) == "0,00 €"
+}
+
+func GetLastWrittenRowIndex(manager Manager, cellRange string) int {
+	readRange := fmt.Sprintf("%s!%s", manager.PageName, cellRange)
 	data, err := ReadFromSheet(manager, readRange)
 	if err != nil {
 		slog.Error("Got no data from the sheet", "ERROR", err)
 	}
 	var lastRow = 1
 	for i, row := range data.Values {
-		if len(row) > 1 && row[0].(string) == "TOTAL" && len(row[0].(string)) > 0 {
+		if len(row) > 1 && row[4].(string) == "TOTAL" && len(row[5].(string)) > 0 {
 			lastRow = i + 2
 		}
 	}

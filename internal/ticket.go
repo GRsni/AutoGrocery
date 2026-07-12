@@ -4,6 +4,7 @@ import (
 	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/api/sheets/v4"
@@ -58,11 +59,25 @@ func (ticket Ticket) ToValueRange() (*sheets.ValueRange, error) {
 }
 
 func (ticket Ticket) TicketToStr() string {
-	return fmt.Sprintf("%s Ticket: %s, total: %f€, items: %s", ticket.Store, ticket.Id, ticket.Total, fmt.Sprint(ticket.Items))
+	return fmt.Sprintf("%s Ticket: %s, total: €%.2f, items: %s", ticket.Store, ticket.Id, ticket.Total, ticket.Items.String())
 }
 
-func (items Item) ItemToStr() string {
-	return ""
+func (items Items) String() string {
+	if len(items) == 0 {
+		return "[]"
+	}
+
+	var builder strings.Builder
+	builder.WriteString("[")
+	for i, item := range items {
+		if i > 0 {
+			builder.WriteString(", ")
+		}
+		amountStr := fmt.Sprintf("%.3f", item.Amount)
+		builder.WriteString(fmt.Sprintf("• %s (x%s @ €%.3f) = €%.2f", item.Name, amountStr, item.Price, utils.ToFixed(item.Amount*item.Price, 2)))
+	}
+	builder.WriteString("]")
+	return builder.String()
 }
 
 func (items Items) IsTotalValid(total float64) bool {

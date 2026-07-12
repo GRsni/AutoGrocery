@@ -39,7 +39,7 @@ func main() {
 	currentYear, currentMonth, currentDay := time.Now().Date()
 	fmt.Println("Current date:", currentYear, constants.FromTimeMonth(currentMonth), currentDay)
 	sheetPageName := getSheetName(currentYear, currentMonth)
-	readRange := fmt.Sprintf("%s!%s", sheetPageName, "A2:B200")
+	readRange := "A2:F300"
 
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.Now().Location())
 
@@ -51,11 +51,12 @@ func main() {
 
 	slog.Debug("Fetching date column data from " + readRange)
 
-	ticketsFromSheet, _ := sh.GetSheetTicketList(sheetsManager, "A2:B300")
+	ticketsFromSheet, _ := sh.GetSheetTicketList(sheetsManager, readRange)
 
 	slog.Info(fmt.Sprintf("Fetched %d tickets for %v %v %v", len(ticketsFromSheet), currentYear, constants.FromTimeMonth(currentMonth), currentDay))
 
-	lastWrittenRow := sh.GetLastWrittenRowIndex(sheetsManager)
+	//lastWrittenRow := sh.GetLastWrittenRowIndex(sheetsManager, readRange)
+	lastWrittenRow := ticketsFromSheet[len(ticketsFromSheet)-1].LastRow
 
 	newTicketsMap := getAllTicketsFromStores(gmailManager, ticketsFromSheet, firstOfMonth)
 

@@ -3,6 +3,7 @@ package internal
 import (
 	"autoGrocery/pkg/constants"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -41,6 +42,61 @@ var singleItemWithPlus = Ticket{
 	},
 }
 
+var FreeTicket = Ticket{Id: "T003", Total: 0, Store: "DIA", Date: baseDate, Items: []Item{{Name: "Freebie", Amount: 1, Price: 0}}}
+
+// --- Items.String ---
+
+func TestItemsString_Empty(t *testing.T) {
+	items := Items{}
+	got := items.String()
+	want := "[]"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestItemsString_SingleItem(t *testing.T) {
+	items := Items{{Name: "Milk", Amount: 2, Price: 1.50}}
+	got := items.String()
+	want := "[• Milk (x2.000 @ €1.500) = €3.00]"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestItemsString_MultipleItems(t *testing.T) {
+	items := Items{
+		{Name: "Bread", Amount: 1, Price: 0.90},
+		{Name: "Eggs", Amount: 12, Price: 2.10},
+		{Name: "Butter", Amount: 1, Price: 1.80},
+	}
+	got := items.String()
+	want := "[• Bread (x1.000 @ €0.900) = €0.90, • Eggs (x12.000 @ €2.100) = €25.20, • Butter (x1.000 @ €1.800) = €1.80]"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestItemsString_ItemsWithPlusSign(t *testing.T) {
+	items := Items{{Name: "+ Item", Amount: 1, Price: 0.90}}
+	got := items.String()
+	want := "[• + Item (x1.000 @ €0.900) = €0.90]"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestItemsString_CommaSeparated(t *testing.T) {
+	items := Items{
+		{Name: "Item A", Amount: 1, Price: 2.50},
+		{Name: "Item B", Amount: 1, Price: 2.50},
+	}
+	got := items.String()
+	if !strings.Contains(got, ", ") {
+		t.Errorf("expected comma-separated items, got %q", got)
+	}
+}
+
 // --- TicketToStr ---
 
 func TestTicketToStr(t *testing.T) {
@@ -53,17 +109,17 @@ func TestTicketToStr(t *testing.T) {
 		{
 			name:     "single item",
 			ticket:   singleItemTicket,
-			expected: fmt.Sprintf("MERCADONA Ticket: T001, total: %f€, items: %s", 9.99, fmt.Sprint(singleItemTicket.Items)),
+			expected: fmt.Sprintf("MERCADONA Ticket: T001, total: €%.2f, items: %s", 9.99, fmt.Sprint(singleItemTicket.Items.String())),
 		},
 		{
 			name:     "multiple items",
 			ticket:   multiItemTicket,
-			expected: fmt.Sprintf("DIA Ticket: T002, total: %f€, items: %s", 25.00, fmt.Sprint(multiItemTicket.Items)),
+			expected: fmt.Sprintf("DIA Ticket: T002, total: €%.2f, items: %s", 25.00, fmt.Sprint(multiItemTicket.Items.String())),
 		},
 		{
 			name:     "zero total",
-			ticket:   Ticket{Id: "T003", Total: 0, Store: "DIA", Date: baseDate, Items: []Item{{Name: "Freebie", Amount: 1, Price: 0}}},
-			expected: fmt.Sprintf("DIA Ticket: T003, total: %f€, items: %s", 0.0, fmt.Sprint([]Item{{Name: "Freebie", Amount: 1, Price: 0}})),
+			ticket:   FreeTicket,
+			expected: fmt.Sprintf("DIA Ticket: T003, total: €%.2f, items: %s", 0.0, fmt.Sprint(FreeTicket.Items.String())),
 		},
 	}
 

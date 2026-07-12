@@ -482,11 +482,11 @@ func TestTokenFromFile_MultipleFields(t *testing.T) {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
 
-	tokenData := map[string]interface{}{
+	tokenData := map[string]any{
 		"access_token":  "test_access_token_123",
 		"refresh_token": "test_refresh_token_456",
 		"token_type":    "Bearer",
-		"expiry":       "2026-12-31T23:59:59Z",
+		"expiry":        "2026-12-31T23:59:59Z",
 	}
 
 	if err := json.NewEncoder(tmpFile).Encode(tokenData); err != nil {

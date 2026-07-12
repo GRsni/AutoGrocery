@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"autoGrocery/utils"
+
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/sheets/v4"
 )
@@ -96,12 +98,19 @@ func (c *fakeUpdateCall) Do(...googleapi.CallOption) (*sheets.UpdateValuesRespon
 }
 
 // testManager builds a Manager wired to the fake values API.
-func testManager(fv *fakeValues) Manager {
+func testManager(fv SheetsAPI) Manager {
 	return Manager{
 		PageName: "Sheet1",
-		config:   Config{Sheets: struct{ MainID string `json:"main-id"` }{MainID: "spreadsheet-id"}},
-		service: fv, // injected; requires Manager to expose a `values SheetsValuesAPI` field
+		config: Config{Sheets: struct {
+			MainID string `json:"main-id"`
+		}{MainID: "spreadsheet-id"}},
+		service: fv, // injected mock service
 	}
+}
+
+// testEntry creates an Entry with specified values for testing
+func testEntry(date time.Time, store string, total float64) Entry {
+	return Entry{Date: date, Store: store, Total: total}
 }
 
 // ---------------------------------------------------------------------------
@@ -172,10 +181,10 @@ func TestGetLastEntryForStore(t *testing.T) {
 		wantRow   int
 	}{
 		{"returns last MERCADONA", tickets, "MERCADONA", "MERCADONA", 9},
-		{"returns last DIA",       tickets, "DIA",       "DIA",       13},
-		{"store not present",      tickets, "CARREFOUR", "",          -1},
-		{"empty slice",            []Entry{}, "MERCADONA", "",        0},
-		{"single matching entry",  tickets[:1], "MERCADONA", "MERCADONA", 1},
+		{"returns last DIA", tickets, "DIA", "DIA", 13},
+		{"store not present", tickets, "CARREFOUR", "", -1},
+		{"empty slice", []Entry{}, "MERCADONA", "", 0},
+		{"single matching entry", tickets[:1], "MERCADONA", "MERCADONA", 1},
 	}
 
 	for _, tt := range tests {
@@ -196,6 +205,7 @@ func TestGetLastEntryForStore(t *testing.T) {
 			}
 		})
 	}
+
 }
 
 // ---------------------------------------------------------------------------
@@ -208,12 +218,21 @@ func TestGetSheetTicketList(t *testing.T) {
 		rows       [][]any
 		wantLen    int
 		wantStores []string
+		wantTotals []float64
 	}{
 		{
-			name:       "two valid rows",
-			rows:       [][]any{{"15/04/2024", "MERCADONA"}, {"01/05/2024", "DIA"}},
+			name: "two valid tickets with separate TOTAL rows",
+			rows: [][]any{
+				{"15/04/2024", "MERCADONA", "", "", "", ""}, // Row 0: Date + Store header
+				{"item1", "2.99", "", "", "", ""},           // Row 1: Item
+				{"", "", "", "", "TOTAL", "45.50 €"},        // Row 2: Total
+				{"01/05/2024", "DIA", "", "", "", ""},       // Row 3: Date + Store header
+				{"item1", "1.50", "", "", "", ""},           // Row 4: Item
+				{"", "", "", "", "TOTAL", "23.75 €"},        // Row 5: Total
+			},
 			wantLen:    2,
 			wantStores: []string{"MERCADONA", "DIA"},
+			wantTotals: []float64{45.50, 23.75},
 		},
 		{
 			name:       "empty sheet",
@@ -222,16 +241,105 @@ func TestGetSheetTicketList(t *testing.T) {
 			wantStores: []string{},
 		},
 		{
-			name:       "row with only one column is skipped",
-			rows:       [][]any{{"15/04/2024"}, {"01/05/2024", "DIA"}},
+			name: "sheet with empty row marker (0,00 €) at end",
+			rows: [][]any{
+				{"15/04/2024", "MERCADONA", "", "", "", ""},
+				{"item1", "2.99", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "45.50 €"},
+				{"", "", "", "", "", "0,00 €"},
+			},
 			wantLen:    1,
-			wantStores: []string{"DIA"},
+			wantStores: []string{"MERCADONA"},
+			wantTotals: []float64{45.50},
 		},
 		{
-			name:       "float64 date value (Sheets number)",
-			rows:       [][]any{{float64(12345), "CARREFOUR"}},
+			name: "multiple items before TOTAL",
+			rows: [][]any{
+				{"20/06/2024", "CARREFOUR", "", "", "", ""},
+				{"item1", "5.00", "", "", "", ""},
+				{"item2", "10.00", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "150.00 €"},
+			},
 			wantLen:    1,
 			wantStores: []string{"CARREFOUR"},
+			wantTotals: []float64{150.00},
+		},
+		{
+			name: "float64 date value (Sheets number format)",
+			rows: [][]any{
+				{float64(20240415), "MERCADONA", "", "", "", ""},
+				{"item1", "2.99", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "45.50 €"},
+			},
+			wantLen:    1,
+			wantStores: []string{"MERCADONA"},
+			wantTotals: []float64{45.50},
+		},
+		{
+			name: "ticket with empty date (should be skipped)",
+			rows: [][]any{
+				{"", "", "", "", "", "0,00 €"},
+			},
+			wantLen:    0,
+			wantStores: []string{},
+		},
+		{
+			name: "ticket with missing TOTAL row (should still be created with 0 total)",
+			rows: [][]any{
+				{"15/04/2024", "MERCADONA", "", "", "", ""},
+				{"item1", "2.99", "", "", "", ""},
+				{"item2", "10.00", "", "", "", ""},
+			},
+			wantLen:    0,
+			wantStores: []string{},
+			wantTotals: []float64{0},
+		},
+		{
+			name: "multiple tickets with varying TOTAL positions",
+			rows: [][]any{
+				{"15/04/2024", "MERCADONA", "", "", "", ""},
+				{"item1", "2.99", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "45.50 €"},
+				{"01/05/2024", "DIA", "", "", "", ""},
+				{"item1", "1.50", "", "", "", ""},
+				{"item2", "3.00", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "23.75 €"},
+				{"10/06/2024", "ALCAMPO", "", "", "", ""},
+				{"item1", "5.00", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "89.99 €"},
+			},
+			wantLen:    3,
+			wantStores: []string{"MERCADONA", "DIA", "ALCAMPO"},
+			wantTotals: []float64{45.50, 23.75, 89.99},
+		},
+		{
+			name: "sheet with empty row in middle (should stop processing)",
+			rows: [][]any{
+				{"15/04/2024", "MERCADONA", "", "", "", ""},
+				{"item1", "2.99", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "45.50 €"},
+				{"", "", "", "", "", "0,00 €"},
+				{"01/05/2024", "DIA", "", "", "", ""},
+				{"item1", "1.50", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "23.75 €"},
+				{"10/06/2024", "ALCAMPO", "", "", "", ""},
+				{"item1", "5.00", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "89.99 €"},
+			},
+			wantLen:    1,
+			wantStores: []string{"MERCADONA"},
+			wantTotals: []float64{45.50},
+		},
+		{
+			name: "ticket with price containing /kg",
+			rows: [][]any{
+				{"15/04/2024", "MERCADONA", "", "", "", ""},
+				{"item1", "2.99/kg", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "45.50 €"},
+			},
+			wantLen:    1,
+			wantStores: []string{"MERCADONA"},
+			wantTotals: []float64{45.50},
 		},
 	}
 
@@ -241,16 +349,19 @@ func TestGetSheetTicketList(t *testing.T) {
 				getResp: &sheets.ValueRange{Values: tt.rows},
 			})
 
-			got, err := GetSheetTicketList(m, "A1:B300")
+			got, err := GetSheetTicketList(m, "A1:F300")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if len(got) != tt.wantLen {
 				t.Fatalf("got %d entries, want %d", len(got), tt.wantLen)
 			}
-			for i, store := range tt.wantStores {
-				if got[i].Store != store {
-					t.Errorf("entry[%d].Store = %q, want %q", i, got[i].Store, store)
+			for i := range got {
+				if got[i].Store != tt.wantStores[i] {
+					t.Errorf("entry[%d].Store = %q, want %q", i, got[i].Store, tt.wantStores[i])
+				}
+				if !utils.FloatsEqual(got[i].Total, tt.wantTotals[i]) {
+					t.Errorf("entry[%d].Total = %f, want %f", i, got[i].Total, tt.wantTotals[i])
 				}
 			}
 		})
@@ -262,7 +373,7 @@ func TestGetSheetTicketList_APIError(t *testing.T) {
 		getErr: fmt.Errorf("network error"),
 	})
 
-	_, err := GetSheetTicketList(m, "A1:B300")
+	_, err := GetSheetTicketList(m, "A1:F300")
 	if err == nil {
 		t.Error("expected error from API failure, got nil")
 	}
@@ -280,17 +391,26 @@ func TestGetLastWrittenRowIndex(t *testing.T) {
 	}{
 		{
 			name:    "single TOTAL row at position 3",
-			rows:    [][]any{{"item"}, {"item"}, {"TOTAL", ""}},
+			rows:    [][]any{
+				{"item", "", "", "", "", ""},
+				{"item", "", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "10.00 €"}},
 			wantRow: 4, // i=2 → i+2=4
 		},
 		{
-			name:    "multiple TOTAL rows returns last",
-			rows:    [][]any{{"TOTAL", ""}, {"item"}, {"item"}, {"TOTAL", ""}},
+			name: "multiple TOTAL rows returns last",
+			rows: [][]any{
+				{"", "", "", "", "TOTAL", "10.00 €"},
+				{"item", "", "", "", "", ""},
+				{"item", "", "", "", "", ""},
+				{"", "", "", "", "TOTAL", "20.00 €"}},
 			wantRow: 5, // i=3 → i+2=5
 		},
 		{
 			name:    "no TOTAL row returns default 1",
-			rows:    [][]any{{"item"}, {"item"}},
+			rows:    [][]any{
+				{"item", "", "", "", "", ""},
+				{"item", "", "", "", "", ""}},
 			wantRow: 1,
 		},
 		{
@@ -305,7 +425,7 @@ func TestGetLastWrittenRowIndex(t *testing.T) {
 			m := testManager(&fakeValues{
 				getResp: &sheets.ValueRange{Values: tt.rows},
 			})
-			got := GetLastWrittenRowIndex(m)
+			got := GetLastWrittenRowIndex(m, "A1:F20")
 			if got != tt.wantRow {
 				t.Errorf("got %d, want %d", got, tt.wantRow)
 			}
@@ -319,18 +439,18 @@ func TestGetLastWrittenRowIndex(t *testing.T) {
 
 func TestGetSheetsConfig(t *testing.T) {
 	tests := []struct {
-		name        string
-		content     string
-		writeFile   bool
-		wantErr     bool
-		wantID      string
+		name      string
+		content   string
+		writeFile bool
+		wantErr   bool
+		wantID    string
 	}{
-		{"valid",                   `{"sheets":{"main-id":"1234"}}`,           true,  false, "1234"},
-		{"missing file",            "",                                          false, true,  ""},
-		{"invalid JSON",            `{ invalid }`,                              true,  true,  ""},
-		{"missing sheets field",    `{"other":"field"}`,                        true,  true,  ""},
-		{"empty main-id",           `{"sheets":{"main-id":""}}`,               true,  true,  ""},
-		{"extra fields ignored",    `{"sheets":{"main-id":"42"},"x":1}`,       true,  false, "42"},
+		{"valid", `{"sheets":{"main-id":"1234"}}`, true, false, "1234"},
+		{"missing file", "", false, true, ""},
+		{"invalid JSON", `{ invalid }`, true, true, ""},
+		{"missing sheets field", `{"other":"field"}`, true, true, ""},
+		{"empty main-id", `{"sheets":{"main-id":""}}`, true, true, ""},
+		{"extra fields ignored", `{"sheets":{"main-id":"42"},"x":1}`, true, false, "42"},
 	}
 
 	for _, tt := range tests {
