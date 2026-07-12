@@ -26,6 +26,8 @@ type Entry struct {
 	Total    float64
 }
 
+const HeaderSize = 1
+
 func EntryToStr(ticket Entry) string {
 	formattedDate := ticket.Date.Format(constants.TicketDateFormat)
 	return fmt.Sprintf("Grocery Ticket: Shop=%s, Date=%s\n", ticket.Store, formattedDate)
@@ -204,19 +206,15 @@ func isRowEmpty(row []any) bool {
 	return utils.ExtractString(row[size-1]) == "0,00 €"
 }
 
-func GetLastWrittenRowIndex(manager Manager, cellRange string) int {
-	readRange := fmt.Sprintf("%s!%s", manager.PageName, cellRange)
-	data, err := ReadFromSheet(manager, readRange)
-	if err != nil {
-		slog.Error("Got no data from the sheet", "ERROR", err)
+func GetLastWrittenRowIndex(entries []Entry) int {
+	numEntries := len(entries)
+	if numEntries == 0 {
+		return HeaderSize
 	}
-	var lastRow = 1
-	for i, row := range data.Values {
-		if len(row) > 1 && row[4].(string) == "TOTAL" && len(row[5].(string)) > 0 {
-			lastRow = i + 2
-		}
+	lastRow := entries[numEntries-1].LastRow
+	if lastRow == 0 {
+		return HeaderSize
 	}
-
 	return lastRow
 }
 

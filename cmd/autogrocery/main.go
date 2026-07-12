@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"google.golang.org/api/gmail/v1"
@@ -38,7 +39,8 @@ func main() {
 
 	currentYear, currentMonth, currentDay := time.Now().Date()
 	fmt.Println("Current date:", currentYear, constants.FromTimeMonth(currentMonth), currentDay)
-	sheetPageName := getSheetName(currentYear, currentMonth)
+	//sheetPageName := getSheetName(currentYear, currentMonth)
+	sheetPageName := "testpage"
 	readRange := "A2:F300"
 
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.Now().Location())
@@ -55,8 +57,7 @@ func main() {
 
 	slog.Info(fmt.Sprintf("Fetched %d tickets for %v %v %v", len(ticketsFromSheet), currentYear, constants.FromTimeMonth(currentMonth), currentDay))
 
-	//lastWrittenRow := sh.GetLastWrittenRowIndex(sheetsManager, readRange)
-	lastWrittenRow := ticketsFromSheet[len(ticketsFromSheet)-1].LastRow
+	lastWrittenRow := sh.GetLastWrittenRowIndex(ticketsFromSheet)
 
 	newTicketsMap := getAllTicketsFromStores(gmailManager, ticketsFromSheet, firstOfMonth)
 
@@ -87,14 +88,18 @@ func uploadNewTickets(newTicketsList []internal.Ticket, sheetsManager sh.Manager
 
 func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firstOfMonth time.Time) map[string][]internal.Ticket {
 	allTickets := make(map[string][]internal.Ticket)
+	var wg sync.WaitGroup
 
 	for _, store := range []string{constants.MERCADONA, constants.DIA, constants.CARREFOUR} {
-		lastEntryFromSheets := sh.GetLastEntryForStore(sheetEntries, store)
-		lastEntryToCompare := getLastEntryToCompare(lastEntryFromSheets, store, firstOfMonth)
+		wg.Go(func() {
+			lastEntryFromSheets := sh.GetLastEntryForStore(sheetEntries, store)
+			lastEntryToCompare := getLastEntryToCompare(lastEntryFromSheets, store, firstOfMonth)
 
-		newFoundTickets := getTicketsForStore(gmManager, store, lastEntryToCompare)
-		allTickets[store] = newFoundTickets
+			newFoundTickets := getTicketsForStore(gmManager, store, lastEntryToCompare)
+			allTickets[store] = newFoundTickets
+		})
 	}
+	wg.Wait()
 	return allTickets
 }
 

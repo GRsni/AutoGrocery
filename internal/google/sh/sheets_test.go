@@ -386,46 +386,44 @@ func TestGetSheetTicketList_APIError(t *testing.T) {
 func TestGetLastWrittenRowIndex(t *testing.T) {
 	tests := []struct {
 		name    string
-		rows    [][]any
+		entries []Entry
 		wantRow int
 	}{
 		{
-			name:    "single TOTAL row at position 3",
-			rows:    [][]any{
-				{"item", "", "", "", "", ""},
-				{"item", "", "", "", "", ""},
-				{"", "", "", "", "TOTAL", "10.00 €"}},
-			wantRow: 4, // i=2 → i+2=4
+			name:    "single Entry returns default",
+			entries: []Entry{{FirstRow: 0, LastRow: 3}},
+			wantRow: 3,
 		},
 		{
-			name: "multiple TOTAL rows returns last",
-			rows: [][]any{
-				{"", "", "", "", "TOTAL", "10.00 €"},
-				{"item", "", "", "", "", ""},
-				{"item", "", "", "", "", ""},
-				{"", "", "", "", "TOTAL", "20.00 €"}},
-			wantRow: 5, // i=3 → i+2=5
+			name: "multiple Entries returns lastRow",
+			entries: []Entry{
+				{FirstRow: 0, LastRow: 3},
+				{LastRow: 50}},
+			wantRow: 50,
 		},
 		{
-			name:    "no TOTAL row returns default 1",
-			rows:    [][]any{
-				{"item", "", "", "", "", ""},
-				{"item", "", "", "", "", ""}},
+			name: "single Entry with no lastRow returns default",
+			entries: []Entry{
+				{}},
 			wantRow: 1,
 		},
 		{
-			name:    "empty sheet returns default 1",
-			rows:    [][]any{},
+			name: "multiple Entries with no LastRow, returns default",
+			entries: []Entry{
+				{FirstRow: 0},
+				{FirstRow: 50}},
+			wantRow: 1,
+		},
+		{
+			name:    "no Entries returns default",
+			entries: []Entry{},
 			wantRow: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := testManager(&fakeValues{
-				getResp: &sheets.ValueRange{Values: tt.rows},
-			})
-			got := GetLastWrittenRowIndex(m, "A1:F20")
+			got := GetLastWrittenRowIndex(tt.entries)
 			if got != tt.wantRow {
 				t.Errorf("got %d, want %d", got, tt.wantRow)
 			}

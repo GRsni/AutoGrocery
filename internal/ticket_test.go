@@ -58,7 +58,7 @@ func TestItemsString_Empty(t *testing.T) {
 func TestItemsString_SingleItem(t *testing.T) {
 	items := Items{{Name: "Milk", Amount: 2, Price: 1.50}}
 	got := items.String()
-	want := "[• Milk (x2.000 @ €1.500) = €3.00]"
+	want := "[Milk (x2.000 @ €1.500)]"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -71,7 +71,7 @@ func TestItemsString_MultipleItems(t *testing.T) {
 		{Name: "Butter", Amount: 1, Price: 1.80},
 	}
 	got := items.String()
-	want := "[• Bread (x1.000 @ €0.900) = €0.90, • Eggs (x12.000 @ €2.100) = €25.20, • Butter (x1.000 @ €1.800) = €1.80]"
+	want := "[Bread (x1.000 @ €0.900), Eggs (x12.000 @ €2.100), Butter (x1.000 @ €1.800)]"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -80,7 +80,7 @@ func TestItemsString_MultipleItems(t *testing.T) {
 func TestItemsString_ItemsWithPlusSign(t *testing.T) {
 	items := Items{{Name: "+ Item", Amount: 1, Price: 0.90}}
 	got := items.String()
-	want := "[• + Item (x1.000 @ €0.900) = €0.90]"
+	want := "[+ Item (x1.000 @ €0.900)]"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

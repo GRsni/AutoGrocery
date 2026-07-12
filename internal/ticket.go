@@ -74,7 +74,7 @@ func (items Items) String() string {
 			builder.WriteString(", ")
 		}
 		amountStr := fmt.Sprintf("%.3f", item.Amount)
-		builder.WriteString(fmt.Sprintf("• %s (x%s @ €%.3f) = €%.2f", item.Name, amountStr, item.Price, utils.ToFixed(item.Amount*item.Price, 2)))
+		builder.WriteString(fmt.Sprintf("%s (x%s @ €%.3f)", item.Name, amountStr, item.Price))
 	}
 	builder.WriteString("]")
 	return builder.String()
