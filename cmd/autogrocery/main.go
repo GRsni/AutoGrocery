@@ -25,6 +25,8 @@ const CredsFilePath = "config/credentials/secrets.json"
 const TokenFilePath = "config/credentials/token.json"
 const CookiesPath = "config/credentials/cookies-www-dia-es.txt"
 
+const TestMode = true
+
 func setupLogger() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -39,9 +41,14 @@ func main() {
 
 	currentYear, currentMonth, currentDay := time.Now().Date()
 	fmt.Println("Current date:", currentYear, constants.FromTimeMonth(currentMonth), currentDay)
-	//sheetPageName := getSheetName(currentYear, currentMonth)
-	sheetPageName := "testpage"
 	readRange := "A2:F300"
+
+	var sheetPageName string
+	if TestMode {
+		sheetPageName = "testpage"
+	} else {
+		//sheetPageName := getSheetName(currentYear, currentMonth)
+	}
 
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.Now().Location())
 
@@ -90,7 +97,7 @@ func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firs
 	allTickets := make(map[string][]internal.Ticket)
 	var wg sync.WaitGroup
 
-	for _, store := range []string{constants.MERCADONA, constants.DIA, constants.CARREFOUR} {
+	for _, store := range []string{constants.MERCADONA,/* constants.DIA, constants.CARREFOUR*/} {
 		wg.Go(func() {
 			lastEntryFromSheets := sh.GetLastEntryForStore(sheetEntries, store)
 			lastEntryToCompare := getLastEntryToCompare(lastEntryFromSheets, store, firstOfMonth)
@@ -140,7 +147,6 @@ func getDiaTickets(lastEntryToCompare sh.Entry) []internal.Ticket {
 	}
 	newDiaTickets := dia.GetTicketList(page, lastEntryToCompare)
 	cleanup()
-	page.Close()
 	return newDiaTickets
 }
 
@@ -152,7 +158,6 @@ func getCarrefourTickets(manager gm.Manager, lastEntryToCompare sh.Entry) []inte
 	}
 	newTickets := carrefour.GetTicketList(page, lastEntryToCompare)
 	cleanup()
-	page.Close()
 	return newTickets
 }
 

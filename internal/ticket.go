@@ -51,7 +51,7 @@ func (ticket Ticket) ToValueRange() (*sheets.ValueRange, error) {
 		return nil, fmt.Errorf("ticket contains no items to upload")
 	}
 	values[0][0] = ticket.Date.Format(constants.TicketDateFormat)
-	values[0][1] = ticket.Store
+	values[0][1] = ticket.Store + "\n" + ticket.Id
 
 	valRange := sheets.ValueRange{MajorDimension: "ROWS", Values: values}
 

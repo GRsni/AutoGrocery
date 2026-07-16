@@ -190,8 +190,9 @@ func TestToValueRange_FirstRowMetadata(t *testing.T) {
 	if row[0] != wantDate {
 		t.Errorf("row[0] date = %q, want %q", row[0], wantDate)
 	}
-	if row[1] != singleItemTicket.Store {
-		t.Errorf("row[1] store = %q, want %q", row[1], singleItemTicket.Store)
+	expectedName := singleItemTicket.Store + "\n" + singleItemTicket.Id
+	if row[1] != expectedName {
+		t.Errorf("row[1] store = %q, want %q", row[1], expectedName)
 	}
 }
 

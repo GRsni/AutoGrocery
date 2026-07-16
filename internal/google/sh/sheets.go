@@ -10,6 +10,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -20,6 +21,7 @@ import (
 
 type Entry struct {
 	Date     time.Time
+	Id       string
 	Store    string
 	FirstRow int
 	LastRow  int
@@ -173,11 +175,12 @@ func getEntryFromSheet(resp *sheets.ValueRange, startingRow int) (*Entry, int, e
 	var store string
 	var total float64
 	var finalRow int
+	var ticketId string
 	row := resp.Values[startingRow]
 	if len(utils.ExtractString(row[0])) > 0 && len(utils.ExtractString(row[1])) > 0 {
 		// Found a new ticket, iterate until TOTAL found
 		date = utils.StringToDate(utils.ExtractString(row[0]))
-		store = utils.ExtractString(row[1])
+		store, ticketId = getStoreNameAndId(utils.ExtractString(row[1]))
 		for j := startingRow + 1; j < len(resp.Values); j++ {
 			row = resp.Values[j]
 			if utils.ExtractString(row[4]) != "TOTAL" {
@@ -192,8 +195,15 @@ func getEntryFromSheet(resp *sheets.ValueRange, startingRow int) (*Entry, int, e
 			return nil, len(resp.Values), fmt.Errorf("unable to find TOTAL row in rest of sheet")
 		}
 	}
-	ticket := Entry{Date: date, Store: store, FirstRow: startingRow + 2, LastRow: finalRow + 2, Total: total}
+	ticket := Entry{Date: date, Store: store, Id: ticketId, FirstRow: startingRow + 2, LastRow: finalRow + 2, Total: total}
 	return &ticket, finalRow, nil
+}
+
+func getStoreNameAndId(input string) (string, string) {
+	stringParts := strings.Split(input, "\n")
+	id := stringParts[len(stringParts)-1]
+	name := stringParts[0]
+	return name, id
 }
 
 func isRowEmpty(row []any) bool {
