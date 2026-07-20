@@ -25,7 +25,7 @@ const CredsFilePath = "config/credentials/secrets.json"
 const TokenFilePath = "config/credentials/token.json"
 const CookiesPath = "config/credentials/cookies-www-dia-es.txt"
 
-const TestMode = true
+const TestMode = false
 
 func setupLogger() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -47,7 +47,7 @@ func main() {
 	if TestMode {
 		sheetPageName = "testpage"
 	} else {
-		//sheetPageName := getSheetName(currentYear, currentMonth)
+		sheetPageName = getSheetName(currentYear, currentMonth)
 	}
 
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.Now().Location())
@@ -97,12 +97,18 @@ func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firs
 	allTickets := make(map[string][]internal.Ticket)
 	var wg sync.WaitGroup
 
-	for _, store := range []string{constants.MERCADONA,/* constants.DIA, constants.CARREFOUR*/} {
+	excluded, errLoadExcluded := internal.LoadExcluded("config/excluded.json")
+	if errLoadExcluded != nil {
+		slog.Warn("Unable to load excluded Ids", "ERROR", errLoadExcluded)
+		return allTickets
+	}
+
+	for _, store := range []string{constants.MERCADONA, constants.DIA, constants.CARREFOUR} {
 		wg.Go(func() {
 			lastEntryFromSheets := sh.GetLastEntryForStore(sheetEntries, store)
 			lastEntryToCompare := getLastEntryToCompare(lastEntryFromSheets, store, firstOfMonth)
 
-			newFoundTickets := getTicketsForStore(gmManager, store, lastEntryToCompare)
+			newFoundTickets := getTicketsForStore(gmManager, store, lastEntryToCompare, excluded)
 			allTickets[store] = newFoundTickets
 		})
 	}
@@ -110,15 +116,15 @@ func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firs
 	return allTickets
 }
 
-func getTicketsForStore(gmManager gm.Manager, store string, lastEntryToCompare sh.Entry) []internal.Ticket {
+func getTicketsForStore(gmManager gm.Manager, store string, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
 	var newFoundTickets []internal.Ticket
 	switch store {
 	case constants.MERCADONA:
-		newFoundTickets = getMercadonaTickets(gmManager, lastEntryToCompare)
+		newFoundTickets = getMercadonaTickets(gmManager, lastEntryToCompare, excluded)
 	case constants.DIA:
-		newFoundTickets = getDiaTickets(lastEntryToCompare)
+		newFoundTickets = getDiaTickets(lastEntryToCompare, excluded)
 	case constants.CARREFOUR:
-		newFoundTickets = getCarrefourTickets(gmManager, lastEntryToCompare)
+		newFoundTickets = getCarrefourTickets(gmManager, lastEntryToCompare, excluded)
 	}
 	slog.Info("Found new tickets", "TICKETS", len(newFoundTickets), "STORE", store)
 	return newFoundTickets
@@ -134,30 +140,32 @@ func getLastEntryToCompare(lastEntryFromSheets *sh.Entry, store string, firstOfM
 	return *lastEntryFromSheets
 }
 
-func getMercadonaTickets(manager gm.Manager, lastEntryToCompare sh.Entry) []internal.Ticket {
-	tickets := mercadona.GetTicketList(manager, lastEntryToCompare)
+func getMercadonaTickets(manager gm.Manager, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
+	tickets := mercadona.GetTicketList(manager, lastEntryToCompare, excluded.MercadonaIds)
 	return tickets
 }
 
-func getDiaTickets(lastEntryToCompare sh.Entry) []internal.Ticket {
+func getDiaTickets(lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
 	page, cleanup, err := dia.LoginToDia(CredsFilePath, CookiesPath)
 	if err != nil {
 		cleanup()
 		return []internal.Ticket{}
 	}
-	newDiaTickets := dia.GetTicketList(page, lastEntryToCompare)
+	newDiaTickets := dia.GetTicketList(page, lastEntryToCompare, excluded.DiaIDs)
 	cleanup()
+	page.Close()
 	return newDiaTickets
 }
 
-func getCarrefourTickets(manager gm.Manager, lastEntryToCompare sh.Entry) []internal.Ticket {
+func getCarrefourTickets(manager gm.Manager, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
 	page, cleanup, err := carrefour.LoginToCarrefour(manager, CredsFilePath)
 	if err != nil {
 		cleanup()
 		return []internal.Ticket{}
 	}
-	newTickets := carrefour.GetTicketList(page, lastEntryToCompare)
+	newTickets := carrefour.GetTicketList(page, lastEntryToCompare, excluded.CarrefourIds)
 	cleanup()
+	page.Close()
 	return newTickets
 }
 

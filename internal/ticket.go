@@ -4,6 +4,7 @@ import (
 	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ type Ticket struct {
 type UploadableTicket interface {
 	TicketToStr() string
 	ToValueRange() *sheets.ValueRange
+	IsExcluded([]string) bool
 }
 
 type ValidatedItems interface {
@@ -78,6 +80,10 @@ func (items Items) String() string {
 	}
 	builder.WriteString("]")
 	return builder.String()
+}
+
+func (ticket Ticket) IsExcluded(ids []string) bool{
+	return slices.Contains(ids, ticket.Id)
 }
 
 func (items Items) IsTotalValid(total float64) bool {

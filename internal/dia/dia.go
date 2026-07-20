@@ -246,7 +246,7 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 	return page, cleanup, nil
 }
 
-func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry) []internal.Ticket {
+func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []string) []internal.Ticket {
 	ticketLisFound, ticketListLink, err := page.Has(".global-info__orders-link-content__button")
 	if err != nil {
 		slog.Debug("Error finding ticket list link", "ERROR", err)
@@ -273,7 +273,7 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry) []internal.Ticke
 	tickets := make([]internal.Ticket, 0)
 	for _, ticketElement := range ticketElements {
 		text, _ := ticketElement.Text()
-		ticketDate, ticketTotal,  errTicketDetails := getDateAndTotal(text)
+		ticketDate, ticketTotal, errTicketDetails := getDateAndTotal(text)
 		if errTicketDetails != nil {
 			return nil
 		}
@@ -288,16 +288,19 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry) []internal.Ticke
 		}
 		ticket := getTicketDetails(ticketElement, page, ticketDate, ticketTotal)
 		if ticket != nil {
+			if ticket.IsExcluded(excludedIds) {
+				slog.Info("Found excluded ticket, discarding", "ID", ticket.Id)
+				continue
+			}
 			tickets = append(tickets, *ticket)
 			slog.Debug(ticket.TicketToStr())
 		}
 
 	}
-
 	return tickets
 }
 
-func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time, ticketTotal float64 ) *internal.Ticket {
+func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time, ticketTotal float64) *internal.Ticket {
 	ticketBtnFound, ticketBtn, err := ticketElement.Has("[data-test-id='button-action']")
 	if err != nil {
 		slog.Debug("Cannot find ticket button, skipping", "ERROR", err)

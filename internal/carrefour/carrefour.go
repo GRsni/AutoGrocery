@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"math/rand"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -210,7 +212,7 @@ func get2FACode(manager gm.Manager) (string, error) {
 	return code, nil
 }
 
-func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry) []internal.Ticket {
+func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []string) []internal.Ticket {
 
 	var totalRows, errGetRowsNumber = getNumberOfTickets(page)
 	if errGetRowsNumber != nil {
@@ -239,6 +241,12 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry) []internal.Ticke
 		ticketTotal := utils.ParsePrice(row.MustElement(`div.price-field p`).MustText())
 		if ticketDateComparison == 0 && utils.FloatsEqual(ticketTotal, lastEntryToCompare.Total) {
 			slog.Info("New ticket found has same date and total as last stored ticket, discarding", "DATE", ticketDate, "TOTAL", ticketTotal)
+			continue
+		}
+
+		ticketId := getId(ticketDate, ticketTotal)
+		if slices.Contains(excludedIds, ticketId) {
+			slog.Info("Found excluded ticket, discarding", "ID", ticketId)
 			continue
 		}
 
@@ -288,7 +296,7 @@ func getTicketDetails(row *rod.Element, page *rod.Page, date time.Time, total fl
 		return nil
 	}
 	closeTicketPage(page)
-	return &internal.Ticket{Id: date.String(), Total: total, Items: items, Date: date, Store: constants.CARREFOUR}
+	return &internal.Ticket{Id: getId(date, total), Total: total, Items: items, Date: date, Store: constants.CARREFOUR}
 }
 
 func closeTicketPage(page *rod.Page) {
@@ -317,6 +325,9 @@ func getItemList(page *rod.Page, hasShowMore bool) internal.Items {
 
 		items = append(items, internal.Item{Name: name, Amount: units, Price: pricePerUnit})
 	}
-
 	return items
+}
+
+func getId(date time.Time, total float64) string {
+	return date.Format("2006-01-02") + "-" + strconv.FormatFloat(total, 'f', -1, 64)
 }

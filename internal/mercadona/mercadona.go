@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,13 +20,13 @@ import (
 const GmailLabelId = "Label_2031551581397134603"
 const TicketHeaderRows = 7
 
-func GetTicketList(manager gm.Manager, lastEntryToCompare sh.Entry) []internal.Ticket {
+func GetTicketList(manager gm.Manager, lastEntryToCompare sh.Entry, excludedIds []string) []internal.Ticket {
 	tickets := make([]internal.Ticket, 0)
 
 	messages := gm.GetMessagesFromLabel(manager, GmailLabelId)
 
-	for _, m := range messages {
-		ticketDate, err := getDateFromTicket(m)
+	for _, message := range messages {
+		ticketDate, err := getDateFromTicket(message)
 		if err != nil {
 			slog.Warn("Unable to get date from ticket filename, skipping", "ERROR", err)
 			continue
@@ -35,14 +36,18 @@ func GetTicketList(manager gm.Manager, lastEntryToCompare sh.Entry) []internal.T
 			slog.Debug("Last ticket is older than ticket found, exiting", "STORE", constants.MERCADONA)
 			break
 		}
-		ticketTotal := getTicketTotal(m)
+		ticketTotal := getTicketTotal(message)
 		if ticketDateComparison == 0 && utils.FloatsEqual(ticketTotal, lastEntryToCompare.Total) {
 			slog.Info("New ticket found has same date and total as last stored ticket, discarding", "DATE", ticketDate, "TOTAL", ticketTotal)
 			continue
 		}
 
-		id := getTicketId(m)
-		ticket := getTicketDetails(manager, m, ticketDate, id, ticketTotal)
+		id := getTicketId(message)
+		if slices.Contains(excludedIds, id) {
+			slog.Info("Found excluded ticket, discarding", "ID", id)
+			continue
+		}
+		ticket := getTicketDetails(manager, message, ticketDate, id, ticketTotal)
 		if ticket != nil {
 			tickets = append(tickets, *ticket)
 			slog.Info(ticket.TicketToStr())
