@@ -13,7 +13,11 @@ import (
 const epsilon = 1e-5
 
 func FloatsEqual(a, b float64) bool {
-	return math.Abs(a-b) < epsilon
+	return FloatsEqualWithDelta(a, b, epsilon)
+}
+
+func FloatsEqualWithDelta(a, b float64, delta float64) bool {
+	return math.Abs(a-b) < delta
 }
 
 func round(num float64) int {

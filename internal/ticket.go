@@ -37,6 +37,7 @@ type UploadableTicket interface {
 
 type ValidatedItems interface {
 	IsTotalValid() bool
+	IsTotalValidWithPrecision(precision int) bool
 }
 
 func (ticket Ticket) ToValueRange() (*sheets.ValueRange, error) {
@@ -82,7 +83,7 @@ func (items Items) String() string {
 	return builder.String()
 }
 
-func (ticket Ticket) IsExcluded(ids []string) bool{
+func (ticket Ticket) IsExcluded(ids []string) bool {
 	return slices.Contains(ids, ticket.Id)
 }
 
@@ -90,8 +91,18 @@ func (items Items) IsTotalValid(total float64) bool {
 	itemsTotal := 0.0
 
 	for _, item := range items {
-		itemsTotal += utils.ToFixed(item.Amount * item.Price, 2)
+		itemsTotal += utils.ToFixed(item.Amount*item.Price, 2)
 	}
 
 	return utils.FloatsEqual(total, utils.ToFixed(itemsTotal, 2))
+}
+
+func (items Items) IsTotalValidWithPrecision(total float64, precision float64) bool {
+	itemsTotal := 0.0
+
+	for _, item := range items {
+		itemsTotal += utils.ToFixed(item.Amount*item.Price, 2)
+	}
+
+	return utils.FloatsEqualWithDelta(total, utils.ToFixed(itemsTotal, 2), precision)
 }

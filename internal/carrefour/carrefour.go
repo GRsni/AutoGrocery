@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -250,7 +252,11 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 			continue
 		}
 
-		ticket := getTicketDetails(row, page, ticketDate, ticketTotal)
+		row.MustClick().MustWaitLoad()
+		page.MustWaitIdle().MustWaitIdle()
+		time.Sleep(5 * time.Second)
+
+		ticket := getTicketDetails(page, ticketDate, ticketTotal)
 		if ticket != nil {
 			tickets = append(tickets, *ticket)
 			slog.Debug(ticket.TicketToStr())
@@ -271,14 +277,10 @@ func getNumberOfTickets(page *rod.Page) (int, error) {
 	return len(pageRows), nil
 }
 
-func getTicketDetails(row *rod.Element, page *rod.Page, date time.Time, total float64) *internal.Ticket {
-	row.MustClick().MustWaitLoad()
-	page.MustWaitIdle().MustWaitIdle()
-	time.Sleep(5 * time.Second)
-
-	hasShowMore, showMoreBtn, err := page.HasR("a", "Mostrar todos")
-	if err != nil {
-		slog.Debug("Error while finding show more button", "ERROR", err)
+func getTicketDetails(page *rod.Page, date time.Time, total float64) *internal.Ticket {
+	hasShowMore, showMoreBtn, errShowAll := page.HasR("a", "Mostrar todos")
+	if errShowAll != nil {
+		slog.Error("Error while finding show more button", "ERROR", errShowAll)
 		return nil
 	}
 	if hasShowMore {
@@ -290,13 +292,41 @@ func getTicketDetails(row *rod.Element, page *rod.Page, date time.Time, total fl
 
 	items := getItemList(page, hasShowMore)
 
-	if !items.IsTotalValid(total) {
+	//page.MustElement("table.table-white tfoot tr").MustElement("td.price").MustText()
+	totalTicketDiscount := getTotalTicketDiscount(page)
+	if math.Abs(totalTicketDiscount) > 0 {
+		totalDiscountShare := totalTicketDiscount / (float64)(len(items))
+		slog.Info("Found general discount applied to ticket, will be split between items", "DISCOUNT", totalTicketDiscount)
+		for i := range items {
+			items[i].Price = items[i].Price + totalDiscountShare/items[i].Amount
+		}
+	}
+
+	if !items.IsTotalValidWithPrecision(total, 0.02) {
 		slog.Warn("Ticket price does not match up, discarding")
 		closeTicketPage(page)
 		return nil
 	}
 	closeTicketPage(page)
 	return &internal.Ticket{Id: getId(date, total), Total: total, Items: items, Date: date, Store: constants.CARREFOUR}
+}
+
+func getTotalTicketDiscount(page *rod.Page) float64 {
+	var numRe = regexp.MustCompile(`^-?\d+(?:[.,]\d+)?`)
+	hasDiscount, discountRow, errHasDiscount := page.Has("table.table-white tfoot tr")
+	hasDiscount2, _, errHasDiscount2 := page.HasR("td", "DESCUENTOS APLICADOS")
+	if errHasDiscount != nil || errHasDiscount2 != nil {
+		slog.Error("Error while getting table footer", "ERROR", errHasDiscount)
+	}
+	if hasDiscount && hasDiscount2 {
+		totalDiscountStr := discountRow.MustElement("td.price").MustText()
+		if len(totalDiscountStr) > 0 {
+			slog.Debug(totalDiscountStr)
+			ticketDiscount := utils.ParsePrice(numRe.FindString(totalDiscountStr))
+			return ticketDiscount
+		}
+	}
+	return 0.0
 }
 
 func closeTicketPage(page *rod.Page) {

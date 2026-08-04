@@ -8,25 +8,37 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
 
-// GetClient retrieves a token, saves the token, then returns the generated client.
+// GetClient retrieves a token, refreshing and saving it if needed, then returns an HTTP client.
 func GetClient(config *oauth2.Config, tokFile string) *http.Client {
-	// The file token.json stores the user's access and refresh tokens and is
-	// created automatically when the authorization flow completes for the first
-	// time.
 	tok, err := tokenFromFile(tokFile)
 	if err != nil {
 		tok = getTokenFromWeb(config)
 		saveToken(tokFile, tok)
 	}
+
+	if !tok.Expiry.IsZero() && time.Now().After(tok.Expiry) {
+		slog.Info("Token expired, refreshing using refresh_token")
+
+		newTok, err := config.TokenSource(context.Background(), tok).Token()
+		if err != nil {
+			slog.Error("Failed to refresh token", "error", err)
+			return config.Client(context.Background(), tok)
+		}
+
+		tok = newTok
+		saveToken(tokFile, tok)
+	}
+
 	return config.Client(context.Background(), tok)
 }
 
-// Request a token from the web, then returns the retrieved token.
+// getTokenFromWeb requests a token from the web via the OAuth consent flow.
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
 	fmt.Printf("Go to the following link in your browser then type the "+
@@ -44,7 +56,7 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	return tok
 }
 
-// Retrieves a token from a local file.
+// tokenFromFile retrieves a token from a local file.
 func tokenFromFile(file string) (*oauth2.Token, error) {
 	f, err := os.Open(file)
 	if err != nil {
@@ -53,13 +65,10 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 	defer f.Close()
 
 	tok := &oauth2.Token{}
-	err = json.NewDecoder(f).Decode(tok)
-
-	if err != nil {
+	if err := json.NewDecoder(f).Decode(tok); err != nil {
 		return tok, err
 	}
 
-	// Check if AccessToken is missing or empty
 	if tok.AccessToken == "" {
 		return tok, fmt.Errorf("missing or empty AccessToken in token file")
 	}
@@ -67,7 +76,7 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 	return tok, nil
 }
 
-// Saves a token to a file path.
+// saveToken saves a token to a file path.
 func saveToken(path string, token *oauth2.Token) {
 	fmt.Printf("Saving credential file to: %s\n", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
@@ -76,10 +85,8 @@ func saveToken(path string, token *oauth2.Token) {
 	}
 	defer f.Close()
 
-	err = json.NewEncoder(f).Encode(token)
-	if err != nil {
+	if err := json.NewEncoder(f).Encode(token); err != nil {
 		slog.Info("Failed to encode token", "ERROR", err)
-		return
 	}
 }
 
@@ -88,7 +95,6 @@ func GetOauthConfig(credsFile string, scopes ...string) *oauth2.Config {
 	if err != nil {
 		log.Fatalf("Unable to read client secret file: %v", err)
 	}
-	// If modifying these scopes, delete your previously saved token.json.
 	config, err := google.ConfigFromJSON(b, scopes...)
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
