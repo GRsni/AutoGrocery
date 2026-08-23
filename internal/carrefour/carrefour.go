@@ -56,7 +56,7 @@ func LoadCredentials(filePath string) (*Credentials, error) {
 
 func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), error) {
 	// Launch browser (headless by default)
-	l := launcher.New().Headless(false)
+	l := launcher.New().Headless(constants.HeadlessMode)
 	l.Set("disable-blink-features", "AutomationControlled")
 	u := l.MustLaunch()
 

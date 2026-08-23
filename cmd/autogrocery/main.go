@@ -25,8 +25,6 @@ const CredsFilePath = "config/credentials/secrets.json"
 const TokenFilePath = "config/credentials/token.json"
 const CookiesPath = "config/credentials/cookies-www-dia-es.txt"
 
-const TestMode = false
-
 func setupLogger() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
@@ -44,7 +42,7 @@ func main() {
 	readRange := "A2:F300"
 
 	var sheetPageName string
-	if TestMode {
+	if constants.TestMode {
 		sheetPageName = "testpage"
 	} else {
 		sheetPageName = getSheetName(currentYear, currentMonth)

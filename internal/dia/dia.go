@@ -134,7 +134,7 @@ func LoadSessionFromCookies(cookiesPath string) ([]*proto.NetworkCookieParam, er
 func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), error) {
 	// Launch browser (headless by default)
 	l := launcher.New().
-		Headless(false).
+		Headless(constants.HeadlessMode).
 		UserDataDir(`C:\Users\yaste\AppData\Local\Google\Chrome\User Data`).
 		Set("disable-blink-features", "AutomationControlled").
 		Set("disable-dev-shm-usage").

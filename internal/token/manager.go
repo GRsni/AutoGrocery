@@ -1,6 +1,7 @@
 package token
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -15,45 +19,93 @@ import (
 )
 
 // GetClient retrieves a token, refreshing and saving it if needed, then returns an HTTP client.
-func GetClient(config *oauth2.Config, tokFile string) *http.Client {
+func GetClient(config *oauth2.Config, tokFile string) (*http.Client, error) {
 	tok, err := tokenFromFile(tokFile)
+
+	// --- PHASE 1: No Token Found (or file corrupted) ---
 	if err != nil {
-		tok = getTokenFromWeb(config)
-		saveToken(tokFile, tok)
-	}
-
-	if !tok.Expiry.IsZero() && time.Now().After(tok.Expiry) {
-		slog.Info("Token expired, refreshing using refresh_token")
-
-		newTok, err := config.TokenSource(context.Background(), tok).Token()
+		slog.Info("No valid token found in file. Initiating web flow.")
+		newTok, err := getTokenFromWeb(config)
 		if err != nil {
-			slog.Error("Failed to refresh token", "error", err)
-			return config.Client(context.Background(), tok)
+			return nil, fmt.Errorf("failed during initial web flow: %w", err)
 		}
-
+		saveToken(tokFile, newTok)
 		tok = newTok
-		saveToken(tokFile, tok)
 	}
 
-	return config.Client(context.Background(), tok)
+	// --- PHASE 2: Token Found, Check Expiry ---
+	if !tok.Expiry.IsZero() && time.Now().After(tok.Expiry) {
+		slog.Info("Token expired, attempting refresh using refresh_token")
+
+		// Attempt to refresh the token
+		newTok, err := config.TokenSource(context.Background(), tok).Token()
+
+		if err != nil {
+			//Refresh failed (e.g., invalid_grant).
+			slog.Error("Failed to refresh token. Token may be revoked or expired.", "error", err)
+
+			// Clean up the dead token file so we don't keep trying it
+			os.Remove(tokFile)
+
+			// Since the refresh failed, we MUST abandon this token and force a fresh web flow
+			slog.Info("Forcing full re-authentication via web flow.")
+
+			newTok, err = getTokenFromWeb(config)
+			if err != nil {
+				return nil, fmt.Errorf("failed during re-authentication web flow: %w", err)
+			}
+			tok = newTok
+			saveToken(tokFile, tok)
+		} else {
+			// Refresh succeeded
+			tok = newTok
+			saveToken(tokFile, tok)
+		}
+	}
+
+	return config.Client(context.Background(), tok), nil
 }
 
 // getTokenFromWeb requests a token from the web via the OAuth consent flow.
-func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
+func getTokenFromWeb(config *oauth2.Config) (*oauth2.Token, error) {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Go to the following link in your browser then type the "+
-		"authorization code: \n%v\n", authURL)
 
-	var authCode string
-	if _, err := fmt.Scan(&authCode); err != nil {
-		panic(fmt.Sprintf("Unable to read authorization code: %v", err))
+	// 1. Automate Browser Opening
+	log.Printf("Opening authentication link in your default browser...")
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", authURL)
+	} else if runtime.GOOS == "darwin" { // Mac
+		cmd = exec.Command("open", authURL)
+	} else { // Linux (assuming xdg-open)
+		cmd = exec.Command("xdg-open", authURL)
 	}
 
-	tok, err := config.Exchange(context.TODO(), authCode)
+	if cmd != nil {
+		cmd.Start()
+	}
+
+	// 2. Prompt User for Code
+	fmt.Println("\n=========================================================")
+	fmt.Printf("ACTION REQUIRED: Please visit the link above, grant permissions, and copy the authorization code.\n")
+	fmt.Print("Paste the full authorization code below: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	fullAuthString, err := reader.ReadString('\n')
 	if err != nil {
-		panic(fmt.Sprintf("Unable to retrieve token from web: %v", err))
+		return nil, fmt.Errorf("failed to read authorization code: %w", err)
 	}
-	return tok
+
+	authCode := strings.Replace(fullAuthString, "http://localhost/?state=state-token&iss=https://accounts.google.com&code=", "", 1)
+	authCode = strings.Replace(authCode, "&scope=https://mail.google.com/%20https://www.googleapis.com/auth/spreadsheets", "", 1)
+
+	// 3. Exchange Code for Token
+	log.Println("Exchanging code for access token...")
+	tok, err := config.Exchange(context.Background(), authCode)
+	if err != nil {
+		return nil, fmt.Errorf("failed to exchange code for token: %w", err)
+	}
+	return tok, nil
 }
 
 // tokenFromFile retrieves a token from a local file.

@@ -289,7 +289,10 @@ func TestGetClient_ReturnsNonNilClient(t *testing.T) {
 		},
 	}
 
-	client := GetClient(config, tmpFile.Name())
+	client, err := GetClient(config, tmpFile.Name())
+	if err != nil {
+		t.Fatalf("GetClient() returned error: %v", err)
+	}
 	if client == nil {
 		t.Error("Expected non-nil client, got nil")
 	}
@@ -327,7 +330,12 @@ func TestGetClient_WithExistingToken(t *testing.T) {
 		},
 	}
 
-	client := GetClient(config, tmpFile.Name())
+	client, err := GetClient(config, tmpFile.Name())
+	if err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		t.Fatalf("GetClient() returned error: %v", err)
+	}
 	if client == nil {
 		tmpFile.Close()
 		os.Remove(tmpFile.Name())
@@ -359,13 +367,12 @@ func TestGetClient_NoExistingToken_TriesWeb(t *testing.T) {
 		},
 	}
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("Expected panic when calling getTokenFromWeb (no auth code provided)")
-		}
-	}()
-
-	_ = GetClient(config, tmpFile.Name())
+	client, err := GetClient(config, tmpFile.Name())
+	if err == nil {
+		t.Error("Expected error when no token exists and web flow fails")
+	} else if client != nil {
+		t.Errorf("Expected nil client when error occurred, got non-nil client")
+	}
 }
 
 // TestGetClient_InvalidConfig tests client creation with invalid config
@@ -393,8 +400,10 @@ func TestGetClient_InvalidConfig(t *testing.T) {
 		RedirectURL: "http://localhost",
 	}
 
-	client := GetClient(config, tmpFile.Name())
-	if client != nil {
+	client, err := GetClient(config, tmpFile.Name())
+	if err != nil {
+		t.Logf("GetClient() returned error: %v", err)
+	} else if client != nil {
 		t.Log("Client was created with empty ClientID - may need validation")
 	}
 
@@ -652,7 +661,10 @@ func TestGetClient_RefreshTokenPresent(t *testing.T) {
 		},
 	}
 
-	client := GetClient(config, tmpFile.Name())
+	client, err := GetClient(config, tmpFile.Name())
+	if err != nil {
+		t.Fatalf("GetClient() returned error: %v", err)
+	}
 	if client == nil {
 		tmpFile.Close()
 		os.Remove(tmpFile.Name())

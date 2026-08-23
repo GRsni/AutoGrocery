@@ -27,7 +27,10 @@ func GetGmailManager(ctx context.Context, config *oauth2.Config, tokFile string)
 }
 
 func GetGmailService(ctx context.Context, config *oauth2.Config, tokFile string) (*gmail.Service, error) {
-	client := token.GetClient(config, tokFile)
+	client, errGetClient := token.GetClient(config, tokFile)
+	if errGetClient != nil {
+		return nil, errGetClient
+	}
 	return gmail.NewService(ctx, option.WithHTTPClient(client))
 }
 

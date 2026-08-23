@@ -92,7 +92,10 @@ func GetSheetManager(ctx context.Context, config *oauth2.Config, tokFile string,
 }
 
 func getSheetService(ctx context.Context, config *oauth2.Config, tokFile string) (*sheets.Service, error) {
-	client := token.GetClient(config, tokFile)
+	client, errGetClient := token.GetClient(config, tokFile)
+	if errGetClient != nil {
+		return nil, errGetClient
+	}
 	return sheets.NewService(ctx, option.WithHTTPClient(client))
 }
 
