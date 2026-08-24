@@ -73,11 +73,12 @@ func getTokenFromWeb(config *oauth2.Config) (*oauth2.Token, error) {
 	// 1. Automate Browser Opening
 	log.Printf("Opening authentication link in your default browser...")
 	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", authURL)
-	} else if runtime.GOOS == "darwin" { // Mac
+	case "darwin": // Mac
 		cmd = exec.Command("open", authURL)
-	} else { // Linux (assuming xdg-open)
+	default: // Linux (assuming xdg-open)
 		cmd = exec.Command("xdg-open", authURL)
 	}
 
