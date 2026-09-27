@@ -171,7 +171,7 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 	}
 	page.MustNavigate("https://www.dia.es/my-account").MustWaitLoad().MustWaitIdle()
 
-	slog.Info("✓ Navigated to Dia homepage")
+	slog.Info("✓ Navigated to Dia homepage", "STORE", constants.DIA)
 
 	//page.MustReload().MustWaitLoad().MustWaitIdle()
 	humanDelay()
@@ -189,7 +189,7 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 
 	emailFieldFound, emailField, err := page.Has("[data-test-id='email_input']")
 	if err != nil {
-		slog.Debug("Cannot find email input field, skipping")
+		slog.Debug("Cannot find email input field, skipping", "STORE", constants.DIA)
 		return nil, cleanup, err
 	}
 	if emailFieldFound {
@@ -201,14 +201,14 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		}
 		page.MustWaitStable()
 		humanDelay()
-		slog.Debug("✓ Email added")
+		slog.Debug("✓ Email added", "STORE", constants.DIA)
 	} else {
-		slog.Debug("Email input field not found")
+		slog.Debug("Email input field not found", "STORE", constants.DIA)
 	}
 
 	passwordFieldFound, passwordField, err := page.Has("[data-test-id='password input_input']")
 	if err != nil {
-		slog.Debug("Cannot find password input field, skipping")
+		slog.Debug("Cannot find password input field, skipping", "STORE", constants.DIA)
 		return nil, cleanup, err
 	}
 	if passwordFieldFound {
@@ -220,14 +220,14 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		}
 		page.MustWaitStable()
 		humanDelay()
-		slog.Debug("✓ Password added")
+		slog.Debug("✓ Password added", "STORE", constants.DIA)
 	} else {
-		slog.Debug("Password input field not found")
+		slog.Debug("Password input field not found", "STORE", constants.DIA)
 	}
 
 	loginBtnFound, loginBtn, err := page.Has("[data-test-id='email_continue_button_enabled']")
 	if err != nil {
-		slog.Debug("Cannot find login button, skipping")
+		slog.Debug("Cannot find login button, skipping", "STORE", constants.DIA)
 		return nil, cleanup, err
 	}
 	if loginBtnFound {
@@ -238,9 +238,9 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		humanDelay()
 		page.MustWaitIdle()
 		//page.MustScreenshot(debugImagesPath + "login.png")
-		slog.Debug("✓ Login button clicked")
+		slog.Debug("✓ Login button clicked", "STORE", constants.DIA)
 	} else {
-		slog.Debug("Login button not found")
+		slog.Debug("Login button not found", "STORE", constants.DIA)
 	}
 
 	return page, cleanup, nil
@@ -253,7 +253,7 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 		return nil
 	}
 	if !ticketLisFound {
-		slog.Warn("ticket list link not found, cookies are outdated, PLEASE REFRESH")
+		slog.Warn("ticket list link not found, cookies are outdated, PLEASE REFRESH", "STORE", constants.DIA)
 		return nil
 	}
 	ticketListLink.MustClick()
@@ -289,7 +289,7 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 		ticket := getTicketDetails(ticketElement, page, ticketDate, ticketTotal)
 		if ticket != nil {
 			if ticket.IsExcluded(excludedIds) {
-				slog.Info("Found excluded ticket, discarding", "ID", ticket.Id)
+				slog.Info("Found excluded ticket, discarding", "ID", ticket.Id, "STORE", constants.DIA)
 				continue
 			}
 			tickets = append(tickets, *ticket)
@@ -312,14 +312,14 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 		ticketBtn.MustClick()
 
 		humanDelay()
-		slog.Debug("✓ Ticket button clicked")
+		slog.Debug("✓ Ticket button clicked", "STORE", constants.DIA)
 	} else {
-		slog.Debug("Ticket button not found")
+		slog.Debug("Ticket button not found", "STORE", constants.DIA)
 	}
 
 	ticketId, err := page.MustElement(".ticket-detail-header__simplified-invoice").Text()
 	if err != nil {
-		slog.Debug("Cannot find ticket id, skipping")
+		slog.Debug("Cannot find ticket id, skipping", "STORE", constants.DIA)
 		return nil
 	}
 	ticketId = strings.Replace(ticketId, "Factura simplificada Nº ", "", 1)
@@ -330,14 +330,14 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 	}
 
 	if !items.IsTotalValid(ticketTotal) {
-		slog.Warn("Ticket price does not match up, discarding")
+		slog.Warn("Ticket price does not match up, discarding", "STORE", constants.DIA)
 		return nil
 	}
 
 	// Close ticket
 	ticketClose, err := page.Element("[data-test-id='ticket-detail-modal-cross']")
 	if err != nil {
-		slog.Debug("Cannot find ticket button, skipping")
+		slog.Debug("Cannot find ticket button, skipping", "STORE", constants.DIA)
 		return nil
 	}
 	ticketClose.Hover()
@@ -378,7 +378,7 @@ func getItemList(page *rod.Page) (internal.Items, error) {
 		itemTotalFound := getItemTotal(row)
 		totalCorrect := isTotalCorrect(itemQty, pricePerUnit, itemTotalFound)
 		if !totalCorrect {
-			slog.Debug("Item total not correct, discarding item", "ITEM", itemName)
+			slog.Debug("Item total not correct, discarding item", "ITEM", itemName, "STORE", constants.DIA)
 			continue
 		}
 		itemDiscount := getDiscount(row)
@@ -405,20 +405,20 @@ func getItemQty(element *rod.Element) (float64, bool) {
 	qtyStr := ""
 	itemQtyFound, itemQty, err := element.Has("[data-test-id='ticket-products-product-quantity']")
 	if err != nil {
-		slog.Debug("Error while trying to find item quantity element", "ERROR", err)
+		slog.Debug("Error while trying to find item quantity element", "ERROR", err, "STORE", constants.DIA)
 		return 0.0, false
 	}
 	if itemQtyFound {
 		qtyStr, err = itemQty.Text()
 		if err != nil {
-			slog.Debug("Error while trying to find item quantity element", "ERROR", err)
+			slog.Debug("Error while trying to find item quantity element", "ERROR", err, "STORE", constants.DIA)
 			return 0.0, false
 		}
 	} else {
 		slog.Debug("Item quantity element not found, searching for weight")
 		weightFound, weightElement, err := element.Has("[data-test-id='ticket-products-product-weight']")
 		if err != nil {
-			slog.Debug("Error while trying to find item weight element", "ERROR", err)
+			slog.Debug("Error while trying to find item weight element", "ERROR", err, "STORE", constants.DIA)
 			return 0.0, false
 		}
 		if weightFound {
@@ -429,7 +429,7 @@ func getItemQty(element *rod.Element) (float64, bool) {
 
 	hasCancelled, _, err := element.Has(".ticket-products__content-data-quantity--cancel")
 	if err != nil {
-		slog.Debug("Error while trying to read cancelled flag", "ERROR", err)
+		slog.Debug("Error while trying to read cancelled flag", "ERROR", err, "STORE", constants.DIA)
 		return 0, false
 	}
 
@@ -442,7 +442,7 @@ func getItemQty(element *rod.Element) (float64, bool) {
 func getPricePerUnit(element *rod.Element, index int) float64 {
 	itemPricePerUnit, err := element.MustElement("[data-test-id='ticket-products-product-price-per-unit-" + strconv.Itoa(index) + "']").Text()
 	if err != nil {
-		slog.Debug("Error while trying to find item price per unit element", "ERROR", err)
+		slog.Debug("Error while trying to find item price per unit element", "ERROR", err, "STORE", constants.DIA)
 	}
 	parsedPrice := utils.ParsePrice(itemPricePerUnit)
 	return parsedPrice
@@ -451,7 +451,7 @@ func getPricePerUnit(element *rod.Element, index int) float64 {
 func getItemTotal(element *rod.Element) float64 {
 	itemTotal, err := element.MustElement("[data-test-id='ticket-products-product-amount']").Text()
 	if err != nil {
-		slog.Debug("Error while trying to find item amount element", "ERROR", err)
+		slog.Debug("Error while trying to find item amount element", "ERROR", err, "STORE", constants.DIA)
 	}
 	parsedTotal := utils.ParsePrice(itemTotal)
 	return parsedTotal
@@ -460,7 +460,7 @@ func getItemTotal(element *rod.Element) float64 {
 func getDiscount(element *rod.Element) float64 {
 	hasDiscount, itemDiscount, err := element.Has("[data-test-id='ticket-products-product-promotion-amount']")
 	if err != nil {
-		slog.Error("Error while trying to find item discount element", "ERROR", err)
+		slog.Error("Error while trying to find item discount element", "ERROR", err, "STORE", constants.DIA)
 		return 0.0
 	}
 	if !hasDiscount {
@@ -469,7 +469,7 @@ func getDiscount(element *rod.Element) float64 {
 	slog.Debug("Item discount found")
 	parsedDiscountStr, err := itemDiscount.Text()
 	if err != nil {
-		slog.Error("Error while trying to get discount from item discount", "ERROR", err)
+		slog.Error("Error while trying to get discount from item discount", "ERROR", err, "STORE", constants.DIA)
 		return 0.0
 	}
 	parsedDiscount := utils.ParsePrice(parsedDiscountStr)
@@ -485,7 +485,7 @@ func removeCancelledItems(items []internal.Item) []internal.Item {
 	indexes := make([]int, 0)
 	for i, item := range items {
 		if item.Cancelled {
-			for j, _ := range items {
+			for j := range items {
 				if item.Name == items[j].Name {
 					items[j].Amount += item.Amount
 				}

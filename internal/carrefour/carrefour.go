@@ -79,7 +79,7 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 
 	page := browser.MustPage("https://www.carrefour.es/").MustWaitStable()
 
-	slog.Info("✓ Navigated to Carrefour homepage")
+	slog.Info("✓ Navigated to Carrefour homepage", "STORE", constants.CARREFOUR)
 
 	found, el, err := page.Has(".account-menu")
 	if err != nil {
@@ -89,9 +89,9 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 	if found {
 		el.MustClick()
 		page.MustWaitStable().MustScreenshot("images/debug/carrefour/menu.png")
-		slog.Debug("✓ Account menu clicked")
+		slog.Debug("✓ Account menu clicked", "STORE", constants.CARREFOUR)
 	} else {
-		slog.Debug("Account menu not found")
+		slog.Debug("Account menu not found", "STORE", constants.CARREFOUR)
 	}
 
 	found, el, err = page.Has(".account-modal__login")
@@ -103,20 +103,20 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 		el.MustClick()
 		page.MustWaitStable()
 		//page.MustScreenshot("images/debug/carrefour/login.png")
-		slog.Debug("✓ Login menu clicked")
+		slog.Debug("✓ Login menu clicked", "STORE", constants.CARREFOUR)
 	} else {
-		slog.Debug("Login button not found")
+		slog.Debug("Login button not found", "STORE", constants.CARREFOUR)
 	}
 	humanDelay()
 
-	slog.Info("✓ Login page open")
+	slog.Info("✓ Login page open", "STORE", constants.CARREFOUR)
 
 	page.Timeout(7 * time.Second)
 
 	page.Mouse.MustMoveTo(1000, 600)
 	page.Mouse.MustClick("left")
 
-	slog.Info("✓ Cookies modal dismissed")
+	slog.Info("✓ Cookies modal dismissed", "STORE", constants.CARREFOUR)
 
 	frame := page.MustElement("iframe[src*='/access']")
 	loginModal := frame.MustFrame()
