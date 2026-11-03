@@ -10,6 +10,7 @@ import (
 	"autoGrocery/internal/token"
 	"autoGrocery/pkg/constants"
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -24,6 +25,7 @@ import (
 const CredsFilePath = "config/credentials/secrets.json"
 const TokenFilePath = "config/credentials/token.json"
 const CookiesPath = "config/credentials/cookies-www-dia-es.txt"
+const SheetReadRange = "A2:F300"
 
 func setupLogger() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -35,18 +37,31 @@ func setupLogger() {
 func main() {
 	setupLogger()
 
+	startDate := flag.String("start", "01-01-0001", "Override the default start date of 1st day of current month. Format is DD-MM-YYYY")
+	flag.Parse()
+
 	ctx := context.Background()
 
-	currentYear, currentMonth, currentDay := time.Now().Date()
-	fmt.Println("Current date:", currentYear, constants.FromTimeMonth(currentMonth), currentDay)
-	readRange := "A2:F300"
+	var currentTime time.Time
 
-	var sheetPageName string
-	if constants.TestMode {
-		sheetPageName = "testpage"
+	if *startDate != "0001-01-01" {
+		slog.Debug("Start date provided", "DATE", *startDate)
+		parsedDateOverride, err := time.Parse("02-01-2006", *startDate)
+		slog.Info(parsedDateOverride.String())
+		if err != nil {
+			slog.Info("Unable to parse date override, defaulting to today")
+			currentTime = time.Now()
+		} else {
+			currentTime = parsedDateOverride
+		}
 	} else {
-		sheetPageName = getSheetName(currentYear, currentMonth)
+		currentTime = time.Now()
 	}
+
+	currentYear, currentMonth, currentDay := currentTime.Date()
+	fmt.Println("Current date:", currentYear, constants.FromTimeMonth(currentMonth), currentDay)
+
+	sheetPageName := getSheetName(currentYear, currentMonth)
 
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.Now().Location())
 
@@ -56,9 +71,9 @@ func main() {
 
 	sheetsManager := sh.GetSheetManager(ctx, oAuthConfig, TokenFilePath, CredsFilePath, sheetPageName)
 
-	slog.Debug("Fetching date column data from " + readRange)
+	slog.Debug("Fetching date column data from " + SheetReadRange)
 
-	ticketsFromSheet, _ := sh.GetSheetTicketList(sheetsManager, readRange)
+	ticketsFromSheet, _ := sh.GetSheetTicketList(sheetsManager, SheetReadRange)
 
 	slog.Info(fmt.Sprintf("Fetched %d tickets for %v %v %v", len(ticketsFromSheet), currentYear, constants.FromTimeMonth(currentMonth), currentDay))
 
@@ -74,8 +89,13 @@ func main() {
 }
 
 func getSheetName(currentYear int, currentMonth time.Month) string {
-	yearStr := fmt.Sprintf("%02d", currentYear%100)
-	sheetPageName := fmt.Sprintf("%s %s", string(constants.FromTimeMonth(currentMonth)), yearStr)
+	var sheetPageName string
+	if constants.TestMode {
+		sheetPageName = "testpage"
+	} else {
+		yearStr := fmt.Sprintf("%02d", currentYear%100)
+		sheetPageName = fmt.Sprintf("%s %s", string(constants.FromTimeMonth(currentMonth)), yearStr)
+	}
 	return sheetPageName
 }
 
@@ -146,6 +166,7 @@ func getMercadonaTickets(manager gm.Manager, lastEntryToCompare sh.Entry, exclud
 func getDiaTickets(lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
 	page, cleanup, err := dia.LoginToDia(CredsFilePath, CookiesPath)
 	if err != nil {
+		slog.Warn("Unable to fetch tickets from DIA", "ERROR", err)
 		cleanup()
 		return []internal.Ticket{}
 	}

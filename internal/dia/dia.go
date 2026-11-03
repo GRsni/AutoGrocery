@@ -182,10 +182,10 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		cookiesBtn.MustClick()
 	}
 
-	// Check if we got redirected to login — means cookies are expired
-	if strings.Contains(page.MustInfo().URL, "/login") {
-		return nil, cleanup, fmt.Errorf("session expired — please re-export cookies from Firefox")
-	}
+	// // Check if we got redirected to login — means cookies are expired
+	// if strings.Contains(page.MustInfo().URL, "/login") {
+	// 	return nil, cleanup, fmt.Errorf("session expired — please re-export cookies from Firefox")
+	// }
 
 	emailFieldFound, emailField, err := page.Has("[data-test-id='email_input']")
 	if err != nil {
