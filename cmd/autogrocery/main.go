@@ -22,6 +22,12 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
+// Version and BuildDate are set via ldflags at build time
+var (
+	Version   = "dev"
+	BuildDate = "unknown"
+)
+
 const CredsFilePath = "config/credentials/secrets.json"
 const TokenFilePath = "config/credentials/token.json"
 const CookiesPath = "config/credentials/cookies-www-dia-es.txt"
@@ -38,13 +44,19 @@ func main() {
 	setupLogger()
 
 	startDate := flag.String("start", "01-01-0001", "Override the default start date of 1st day of current month. Format is DD-MM-YYYY")
+	showVersion := flag.Bool("version", false, "Show version and build date")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("Version: %s\nBuild Date: %s\n", Version, BuildDate)
+		os.Exit(0)
+	}
 
 	ctx := context.Background()
 
 	var currentTime time.Time
 
-	if *startDate != "0001-01-01" {
+	if *startDate != "01-01-0001" {
 		slog.Debug("Start date provided", "DATE", *startDate)
 		parsedDateOverride, err := time.Parse("02-01-2006", *startDate)
 		slog.Info(parsedDateOverride.String())

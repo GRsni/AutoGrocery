@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"autoGrocery/internal"
 	"autoGrocery/utils"
 )
 
@@ -162,66 +163,66 @@ func TestGetDateAndTotal(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		input     string
-		expectErr bool
-		expectedDate time.Time
+		name          string
+		input         string
+		expectErr     bool
+		expectedDate  time.Time
 		expectedTotal float64
 	}{
 		{
-			name:        "Valid Date",
-			input:       "Header\n15/02/2023\n50.00",
-			expectErr:   false,
-			expectedDate: d(15, 2, 2023),
+			name:          "Valid Date",
+			input:         "Header\n15/02/2023\n50.00",
+			expectErr:     false,
+			expectedDate:  d(15, 2, 2023),
 			expectedTotal: 50.0,
 		},
 		{
-			name:        "Valid Date with Spaces",
-			input:       "Ticket Details\n 15/02/2023 \n45.99",
-			expectErr:   false,
-			expectedDate: d(15, 2, 2023),
+			name:          "Valid Date with Spaces",
+			input:         "Ticket Details\n 15/02/2023 \n45.99",
+			expectErr:     false,
+			expectedDate:  d(15, 2, 2023),
 			expectedTotal: 45.99,
 		},
 		{
-			name:        "Valid Date - End of Year",
-			input:       "Header\n31/12/2024\n100.00",
-			expectErr:   false,
-			expectedDate: d(31, 12, 2024),
+			name:          "Valid Date - End of Year",
+			input:         "Header\n31/12/2024\n100.00",
+			expectErr:     false,
+			expectedDate:  d(31, 12, 2024),
 			expectedTotal: 100.0,
 		},
 		{
-			name:        "Invalid Date Format",
-			input:       "Header\nNot A Date\nFooter",
-			expectErr:   true,
-			expectedDate: time.Time{},
+			name:          "Invalid Date Format",
+			input:         "Header\nNot A Date\nFooter",
+			expectErr:     true,
+			expectedDate:  time.Time{},
 			expectedTotal: 0.0,
 		},
 		{
-			name:        "Empty Input",
-			input:       "",
-			expectErr:   true,
-			expectedDate: time.Time{},
+			name:          "Empty Input",
+			input:         "",
+			expectErr:     true,
+			expectedDate:  time.Time{},
 			expectedTotal: 0.0,
 		},
 		{
-			name:        "Missing Newline (Header only)",
-			input:       "Just Header",
-			expectErr:   true,
-			expectedDate: time.Time{},
+			name:          "Missing Newline (Header only)",
+			input:         "Just Header",
+			expectErr:     true,
+			expectedDate:  time.Time{},
 			expectedTotal: 0.0,
 		},
 		{
-			name:        "Valid Date with Euro Symbol",
-			input:       "Ticket\n15/04/2024\n€75.50",
-			expectErr:   false,
-			expectedDate: d(15, 4, 2024),
+			name:          "Valid Date with Euro Symbol",
+			input:         "Ticket\n15/04/2024\n€75.50",
+			expectErr:     false,
+			expectedDate:  d(15, 4, 2024),
 			expectedTotal: 75.5,
 		},
 		{
-			name:        "Price with Comma (European format)",
-			input:       "Header\n20/06/2024\n30,99",
-			expectErr:   false,
-			expectedDate: d(20, 6, 2024),
+			name:          "Price with Comma (European format)",
+			input:         "Header\n20/06/2024\n30,99",
+			expectErr:     false,
+			expectedDate:  d(20, 6, 2024),
 			expectedTotal: 30.99,
 		},
 	}
@@ -252,7 +253,6 @@ func TestGetDateAndTotal(t *testing.T) {
 		})
 	}
 }
-
 
 // Tests for Total Correct Logic (Math Helper)
 func TestIsTotalCorrect(t *testing.T) {
@@ -292,6 +292,141 @@ func TestIsTotalCorrect(t *testing.T) {
 			if result != tt.expected {
 				t.Errorf("isTotalCorrect(%v, %v, %v) = %v, expected %v",
 					tt.qty, tt.price, tt.total, result, tt.expected)
+			}
+		})
+	}
+}
+
+// Tests for removeCancelledItems
+func TestRemoveCancelledItems(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []internal.Item
+		expected []internal.Item
+	}{
+		{
+			name: "No cancelled items",
+			input: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Cancelled: false},
+				{Name: "Banana", Amount: 3.0, Price: 0.5, Cancelled: false},
+			},
+			expected: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Cancelled: false},
+				{Name: "Banana", Amount: 3.0, Price: 0.5, Cancelled: false},
+			},
+		},
+		{
+			name: "Single cancelled item",
+			input: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Cancelled: false},
+				{Name: "Apple", Amount: -2.0, Price: 1.5, Cancelled: true},
+				{Name: "Banana", Amount: 3.0, Price: 0.5, Cancelled: false},
+			},
+			expected: []internal.Item{
+				{Name: "Apple", Amount: 0.0, Price: 1.5, Cancelled: false},
+				{Name: "Banana", Amount: 3.0, Price: 0.5, Cancelled: false},
+			},
+		},
+		{
+			name: "All cancelled items",
+			input: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Cancelled: false},
+				{Name: "Apple", Amount: -2.0, Price: 1.5, Cancelled: true},
+			},
+			// The function keeps the first non-cancelled item with matching name
+			expected: []internal.Item{
+				{Name: "Apple", Amount: 0.0, Price: 1.5, Cancelled: false},
+			},
+		},
+		{
+			name:     "Empty items",
+			input:    []internal.Item{},
+			expected: []internal.Item{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := removeCancelledItems(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d items, got %d", len(tt.expected), len(result))
+				return
+			}
+			for i, expectedItem := range tt.expected {
+				if i >= len(result) {
+					break
+				}
+				if result[i].Name != expectedItem.Name {
+					t.Errorf("Item %d: expected name %s, got %s", i, expectedItem.Name, result[i].Name)
+				}
+				if !utils.FloatsEqual(result[i].Amount, expectedItem.Amount) {
+					t.Errorf("Item %d: expected amount %v, got %v", i, expectedItem.Amount, result[i].Amount)
+				}
+			}
+		})
+	}
+}
+
+// Tests for applyDiscounts
+func TestApplyDiscounts(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []internal.Item
+		expected []internal.Item
+	}{
+		{
+			name: "No discounts",
+			input: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Discount: 0.0},
+				{Name: "Banana", Amount: 3.0, Price: 0.5, Discount: 0.0},
+			},
+			expected: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Discount: 0.0},
+				{Name: "Banana", Amount: 3.0, Price: 0.5, Discount: 0.0},
+			},
+		},
+		{
+			name: "With negative discount",
+			input: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 2.0, Discount: -1.0},
+			},
+			expected: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Discount: -1.0},
+			},
+		},
+		{
+			name: "Positive discount (no change)",
+			input: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Discount: 0.5},
+			},
+			expected: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Discount: 0.5},
+			},
+		},
+		{
+			name:     "Empty items",
+			input:    []internal.Item{},
+			expected: []internal.Item{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := applyDiscounts(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d items, got %d", len(tt.expected), len(result))
+				return
+			}
+			for i, expectedItem := range tt.expected {
+				if i >= len(result) {
+					break
+				}
+				if result[i].Name != expectedItem.Name {
+					t.Errorf("Item %d: expected name %s, got %s", i, expectedItem.Name, result[i].Name)
+				}
+				if !utils.FloatsEqual(result[i].Price, expectedItem.Price) {
+					t.Errorf("Item %d: expected price %v, got %v", i, expectedItem.Price, result[i].Price)
+				}
 			}
 		})
 	}

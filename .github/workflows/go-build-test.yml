@@ -11,12 +11,14 @@ on:
 
 jobs:
 
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c #v6.4.0
@@ -35,10 +37,87 @@ jobs:
         run: go test -v ./...
 
       - name: Update coverage report
-        uses: ncruces/go-coverage-report@dfc237255099f2d25066babde51253992175e365 #v0.3.2
+        uses: ncruces/go-coverage-report@dfc237255099f2d25066babde5125392175e365 #v0.3.2
         with:
           report: true
           chart: true
           amend: true
         if: github.event_name == 'push'
         continue-on-error: true
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      tag_exists: ${{ steps.check-tag.outputs.EXISTS }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c #v6.4.0
+        with:
+          go-version: '1.26'
+
+      - name: Determine version
+        id: version
+        run: |
+          # Use semantic versioning: v0.X.Y based on tag count
+          TAG_COUNT=$(git tag -l 'v*' | wc -l)
+          PATCH=$((TAG_COUNT + 1))
+          VERSION="v0.0.${PATCH}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Generated version: ${VERSION}"
+
+      - name: Check if tag exists
+        id: check-tag
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          if git rev-parse "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "EXISTS=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${VERSION} already exists"
+          else
+            echo "EXISTS=false" >> "$GITHUB_OUTPUT"
+            echo "Tag ${VERSION} does not exist"
+          fi
+
+      - name: Build ARM64 binary
+        if: steps.check-tag.outputs.EXISTS == 'false'
+        run: |
+          BINARY="autogrocery-${{ steps.version.outputs.VERSION }}-linux-arm64"
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags "-X main.Version=${{ steps.version.outputs.VERSION }} -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "${BINARY}" \
+            ./cmd/autogrocery/
+          # Create a symlink for easy identification
+          ln -s "${BINARY}" autogrocery-linux-arm64
+          ls -lh "${BINARY}"
+
+      - name: Create or update Release
+        if: steps.check-tag.outputs.EXISTS == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: "Release ${{ steps.version.outputs.VERSION }}"
+          body: |
+            ## AutoGrocery ${{ steps.version.outputs.VERSION }}
+            
+            **Build:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+            **Target:** Linux ARM64 (Raspberry Pi)
+            
+            ### Download
+            - `autogrocery-${{ steps.version.outputs.VERSION }}-linux-arm64` — ARM64 binary for Raspberry Pi
+            
+            ### Installation on Raspberry Pi
+            ```bash
+            curl -L -o autogrocery https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/autogrocery-${{ steps.version.outputs.VERSION }}-linux-arm64
+            chmod +x autogrocery
+            ```
+          files: autogrocery-${{ steps.version.outputs.VERSION }}-linux-arm64
+          draft: false
+          prerelease: false

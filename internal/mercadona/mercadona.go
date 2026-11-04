@@ -58,7 +58,12 @@ func GetTicketList(manager gm.Manager, lastEntryToCompare sh.Entry, excludedIds 
 }
 
 func getTicketTotal(m *gmail.Message) float64 {
-	filenameParts := strings.Split(m.Payload.Parts[1].Filename, " ")
+	filename := strings.TrimSuffix(m.Payload.Parts[1].Filename, ".pdf")
+	filenameParts := strings.Split(filename, " ")
+	if len(filenameParts) < 3 {
+		slog.Warn("Invalid filename format for ticket total", "FILENAME", filename)
+		return 0
+	}
 	return utils.StringToFloat(filenameParts[2], 2)
 }
 func getDateFromTicket(message *gmail.Message) (time.Time, error) {

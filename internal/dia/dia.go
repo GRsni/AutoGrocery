@@ -133,9 +133,15 @@ func LoadSessionFromCookies(cookiesPath string) ([]*proto.NetworkCookieParam, er
 
 func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), error) {
 	// Launch browser (headless by default)
+
+	userDataDir := os.Getenv("CHROME_USER_DATA_DIR")
+	if userDataDir == "" {
+		userDataDir = "/home/user/.config/google-chrome" // Linux default
+	}
+
 	l := launcher.New().
 		Headless(constants.HeadlessMode).
-		UserDataDir(`C:\Users\yaste\AppData\Local\Google\Chrome\User Data`).
+		UserDataDir(userDataDir).
 		Set("disable-blink-features", "AutomationControlled").
 		Set("disable-dev-shm-usage").
 		Set("no-sandbox")

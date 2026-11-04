@@ -3,8 +3,6 @@ package sh
 import (
 	"autoGrocery/pkg/constants"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -432,40 +430,417 @@ func TestGetLastWrittenRowIndex(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// getSheetsConfig (existing, kept for completeness — already in your suite)
+// ReadFromSheet
 // ---------------------------------------------------------------------------
 
-func TestGetSheetsConfig(t *testing.T) {
+func TestReadFromSheet(t *testing.T) {
 	tests := []struct {
-		name      string
-		content   string
-		writeFile bool
-		wantErr   bool
-		wantID    string
+		name    string
+		getResp *sheets.ValueRange
+		getErr  error
+		wantErr bool
+		wantLen int
 	}{
-		{"valid", `{"sheets":{"main-id":"1234"}}`, true, false, "1234"},
-		{"missing file", "", false, true, ""},
-		{"invalid JSON", `{ invalid }`, true, true, ""},
-		{"missing sheets field", `{"other":"field"}`, true, true, ""},
-		{"empty main-id", `{"sheets":{"main-id":""}}`, true, true, ""},
-		{"extra fields ignored", `{"sheets":{"main-id":"42"},"x":1}`, true, false, "42"},
+		{
+			name:    "successful read",
+			getResp: &sheets.ValueRange{Values: [][]any{{"a", "b"}, {"c", "d"}}},
+			getErr:  nil,
+			wantErr: false,
+			wantLen: 2,
+		},
+		{
+			name:    "empty response",
+			getResp: &sheets.ValueRange{Values: [][]any{}},
+			getErr:  nil,
+			wantErr: false,
+			wantLen: 0,
+		},
+		{
+			name:    "nil response",
+			getResp: nil,
+			getErr:  nil,
+			wantErr: false,
+			wantLen: 0,
+		},
+		{
+			name:    "API error",
+			getResp: nil,
+			getErr:  fmt.Errorf("connection failed"),
+			wantErr: true,
+			wantLen: 0,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "creds.json")
-			if tt.writeFile {
-				if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
-					t.Fatalf("setup: %v", err)
-				}
-			}
+			m := testManager(&fakeValues{getResp: tt.getResp, getErr: tt.getErr})
 
-			cfg, err := getSheetsConfig(path)
+			got, err := ReadFromSheet(m, "A1:B10")
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("wantErr=%v, got err=%v", tt.wantErr, err)
 			}
-			if !tt.wantErr && cfg.Sheets.MainID != tt.wantID {
-				t.Errorf("MainID = %q, want %q", cfg.Sheets.MainID, tt.wantID)
+			if tt.wantErr {
+				return
+			}
+			if got == nil {
+				if tt.wantLen != 0 {
+					t.Fatalf("got nil response, want %d rows", tt.wantLen)
+				}
+				return
+			}
+			if len(got.Values) != tt.wantLen {
+				t.Errorf("got %d rows, want %d", len(got.Values), tt.wantLen)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// getEntryFromSheet
+// ---------------------------------------------------------------------------
+
+func TestGetEntryFromSheet(t *testing.T) {
+	tests := []struct {
+		name         string
+		rows         [][]any
+		startingRow  int
+		wantStore    string
+		wantTotal    float64
+		wantFirstRow int
+		wantLastRow  int
+		wantErr      bool
+	}{
+		{
+			name:         "valid ticket with single item",
+			rows:         [][]any{{"15/04/2024", "MERCADONA", "", "", "", ""}, {"item1", "2.99", "", "", "", ""}, {"", "", "", "", "TOTAL", "45.50 €"}},
+			startingRow:  0,
+			wantStore:    "MERCADONA",
+			wantTotal:    45.50,
+			wantFirstRow: 2,
+			wantLastRow:  4,
+			wantErr:      false,
+		},
+		{
+			name:         "valid ticket with multiple items",
+			rows:         [][]any{{"01/01/2024", "DIA", "", "", "", ""}, {"item1", "5.00", "", "", "", ""}, {"item2", "10.00", "", "", "", ""}, {"", "", "", "", "TOTAL", "150.00 €"}},
+			startingRow:  0,
+			wantStore:    "DIA",
+			wantTotal:    150.00,
+			wantFirstRow: 2,
+			wantLastRow:  5,
+			wantErr:      false,
+		},
+		{
+			name:         "missing TOTAL row",
+			rows:         [][]any{{"15/04/2024", "MERCADONA", "", "", "", ""}, {"item1", "2.99", "", "", "", ""}},
+			startingRow:  0,
+			wantStore:    "",
+			wantTotal:    0,
+			wantFirstRow: 0,
+			wantLastRow:  0,
+			wantErr:      true,
+		},
+		{
+			name:         "empty row",
+			rows:         [][]any{{"", "", "", "", "", ""}},
+			startingRow:  0,
+			wantStore:    "",
+			wantTotal:    0,
+			wantFirstRow: 2,
+			wantLastRow:  2,
+			wantErr:      false,
+		},
+		{
+			name:         "ticket with store containing newline",
+			rows:         [][]any{{"20/06/2024", "MERCADONA\nM001", "", "", "", ""}, {"item1", "3.50", "", "", "", ""}, {"", "", "", "", "TOTAL", "89.99 €"}},
+			startingRow:  0,
+			wantStore:    "MERCADONA",
+			wantTotal:    89.99,
+			wantFirstRow: 2,
+			wantLastRow:  4,
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &sheets.ValueRange{Values: tt.rows}
+
+			got, finalRow, err := getEntryFromSheet(resp, tt.startingRow)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("wantErr=%v, got err=%v", tt.wantErr, err)
+			}
+			if tt.wantErr {
+				return
+			}
+			if got == nil {
+				t.Fatal("got nil entry, want non-nil")
+			}
+			if got.Store != tt.wantStore {
+				t.Errorf("Store = %q, want %q", got.Store, tt.wantStore)
+			}
+			if !utils.FloatsEqual(got.Total, tt.wantTotal) {
+				t.Errorf("Total = %f, want %f", got.Total, tt.wantTotal)
+			}
+			if got.FirstRow != tt.wantFirstRow {
+				t.Errorf("FirstRow = %d, want %d", got.FirstRow, tt.wantFirstRow)
+			}
+			if got.LastRow != tt.wantLastRow {
+				t.Errorf("LastRow = %d, want %d", got.LastRow, tt.wantLastRow)
+			}
+			// finalRow is the 0-based sheet row index; wantLastRow is 1-based adjusted (finalRow + 2)
+			if finalRow != tt.wantLastRow-2 {
+				t.Errorf("finalRow = %d, want %d", finalRow, tt.wantLastRow-2)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// isRowEmpty
+// ---------------------------------------------------------------------------
+
+func TestIsRowEmpty(t *testing.T) {
+	tests := []struct {
+		name string
+		row  []any
+		want bool
+	}{
+		{
+			name: "empty row with 0,00 € marker",
+			row:  []any{"", "", "", "", "", "0,00 €"},
+			want: true,
+		},
+		{
+			name: "empty row with empty last cell",
+			row:  []any{"", "", "", "", "", ""},
+			want: false,
+		},
+		{
+			name: "row with content in first column",
+			row:  []any{"15/04/2024", "MERCADONA", "", "", "", ""},
+			want: false,
+		},
+		{
+			name: "row with content in middle column",
+			row:  []any{"", "item1", "2.99", "", "", ""},
+			want: false,
+		},
+		{
+			name: "row with only 0,00 € in last column",
+			row:  []any{"", "", "", "", "", "0,00 €"},
+			want: true,
+		},
+		{
+			name: "single element row with 0,00 €",
+			row:  []any{"0,00 €"},
+			want: true,
+		},
+		{
+			name: "row with non-empty second-to-last element",
+			row:  []any{"", "something", "", "", "", "0,00 €"},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isRowEmpty(tt.row)
+			if got != tt.want {
+				t.Errorf("isRowEmpty(%v) = %v, want %v", tt.row, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WriteToSheet
+// ---------------------------------------------------------------------------
+
+func TestWriteToSheet(t *testing.T) {
+	tests := []struct {
+		name       string
+		values     *sheets.ValueRange
+		firstRow   int
+		updateResp *sheets.UpdateValuesResponse
+		updateErr  error
+		wantRows   int
+		wantErr    bool
+	}{
+		{
+			name:     "successful write",
+			values:   &sheets.ValueRange{Values: [][]any{{"item1", "2.99"}, {"item2", "5.00"}}},
+			firstRow: 10,
+			updateResp: &sheets.UpdateValuesResponse{
+				UpdatedRows:    3,
+				UpdatedColumns: 6,
+				UpdatedCells:   18,
+			},
+			updateErr: nil,
+			wantRows:  3,
+			wantErr:   false,
+		},
+		{
+			name:     "empty values",
+			values:   &sheets.ValueRange{Values: [][]any{}},
+			firstRow: 5,
+			updateResp: &sheets.UpdateValuesResponse{
+				UpdatedCells: 6,
+			},
+			updateErr: nil,
+			wantRows:  1,
+			wantErr:   false,
+		},
+		{
+			name:       "write error",
+			values:     &sheets.ValueRange{Values: [][]any{{"item1", "2.99"}}},
+			firstRow:   10,
+			updateResp: nil,
+			updateErr:  fmt.Errorf("network error"),
+			wantRows:   10,    // should return firstRow on error
+			wantErr:    false, // WriteToSheet doesn't return error, just logs
+		},
+		{
+			name:     "single item ticket",
+			values:   &sheets.ValueRange{Values: [][]any{{"item1", "10.00"}}},
+			firstRow: 20,
+			updateResp: &sheets.UpdateValuesResponse{
+				UpdatedCells: 9,
+			},
+			updateErr: nil,
+			wantRows:  2,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := testManager(&fakeValues{
+				updateResp: tt.updateResp,
+				updateErr:  tt.updateErr,
+			})
+
+			got := WriteToSheet(m, tt.values, tt.firstRow)
+			if got != tt.wantRows {
+				t.Errorf("got %d, want %d", got, tt.wantRows)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FormatTicketBlock
+// ---------------------------------------------------------------------------
+
+func TestFormatTicketBlock(t *testing.T) {
+	tests := []struct {
+		name        string
+		firstRow    int
+		ticketItems int
+		batchResp   *sheets.BatchUpdateSpreadsheetResponse
+		batchErr    error
+		wantErr     bool
+	}{
+		{
+			name:        "successful format",
+			firstRow:    10,
+			ticketItems: 3,
+			batchResp:   &sheets.BatchUpdateSpreadsheetResponse{},
+			batchErr:    nil,
+			wantErr:     false,
+		},
+		{
+			name:        "batch update error",
+			firstRow:    10,
+			ticketItems: 3,
+			batchResp:   nil,
+			batchErr:    fmt.Errorf("API error"),
+			wantErr:     true,
+		},
+		{
+			name:        "single item ticket",
+			firstRow:    5,
+			ticketItems: 1,
+			batchResp:   &sheets.BatchUpdateSpreadsheetResponse{},
+			batchErr:    nil,
+			wantErr:     false,
+		},
+		{
+			name:        "large ticket block",
+			firstRow:    100,
+			ticketItems: 50,
+			batchResp:   &sheets.BatchUpdateSpreadsheetResponse{},
+			batchErr:    nil,
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := testManager(&fakeValues{
+				batchUpdateResp: tt.batchResp,
+				batchUpdateErr:  tt.batchErr,
+			})
+
+			err := FormatTicketBlock(m, tt.firstRow, tt.ticketItems)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("wantErr=%v, got err=%v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// getStoreNameAndId
+// ---------------------------------------------------------------------------
+
+func TestGetStoreNameAndId(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantName string
+		wantId   string
+	}{
+		{
+			name:     "simple store name",
+			input:    "MERCADONA",
+			wantName: "MERCADONA",
+			wantId:   "MERCADONA",
+		},
+		{
+			name:     "store with ID",
+			input:    "MERCADONA\nM001",
+			wantName: "MERCADONA",
+			wantId:   "M001",
+		},
+		{
+			name:     "store with multiple newlines",
+			input:    "DIA\nD001\nextra",
+			wantName: "DIA",
+			wantId:   "extra",
+		},
+		{
+			name:     "empty input",
+			input:    "",
+			wantName: "",
+			wantId:   "",
+		},
+		{
+			name:     "store with newline and empty ID",
+			input:    "CARREFOUR\n",
+			wantName: "CARREFOUR",
+			wantId:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotName, gotId := getStoreNameAndId(tt.input)
+			if gotName != tt.wantName {
+				t.Errorf("name = %q, want %q", gotName, tt.wantName)
+			}
+			if gotId != tt.wantId {
+				t.Errorf("id = %q, want %q", gotId, tt.wantId)
 			}
 		})
 	}
