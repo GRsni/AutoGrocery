@@ -52,8 +52,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	ctx := context.Background()
-
 	var currentTime time.Time
 
 	if *startDate != "01-01-0001" {
@@ -76,6 +74,8 @@ func main() {
 	sheetPageName := getSheetName(currentYear, currentMonth)
 
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.Now().Location())
+
+	ctx := context.Background()
 
 	oAuthConfig := token.GetOauthConfig(CredsFilePath, sheets.SpreadsheetsScope, gmail.MailGoogleComScope)
 
