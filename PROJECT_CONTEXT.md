@@ -234,12 +234,14 @@ go test ./internal/    # Run internal package tests
 
 **Test coverage areas:**
 - `internal/exclusion_test.go` — `LoadExcluded()` with valid/missing/invalid/empty JSON
-- `internal/ticket_test.go` — `Ticket.ToValueRange()`, `Items.String()`, `IsExcluded()`, total validation
+- `internal/ticket_test.go` — `Ticket.ToValueRange()`, `Items.String()`, `IsExcluded()`, total validation, `IsTotalValidWithPrecision()`, `ToEntryItem()`, `ToEntry()`
 - `internal/dia/dia_test.go` — `LoadCredentials()`, `LoadSessionFromCookies()`, date/total parsing
 - `internal/token/manager_test.go` — `tokenFromFile()`, `saveToken()` with various edge cases
 - `utils/utils_test.go` — All float/price/qty parsing functions
+- `cmd/autogrocery/main_test.go` — `parseCurrentTimeOverride()`, `parseStoreOverride()`, `getSheetName()`, `CombineTickets()`, `MergeAllTickets()`, `getLastEntryToCompare()`
+- `pkg/constants/months_test.go` — `FromTimeMonth()` for all 12 months and edge cases
 
-**Test Mode:** Set `constants.TestMode = true` to use test sheet pages.
+**Test Mode:** Changed `constants.TestMode` from `const` to `var` (now testable). Set `constants.TestMode = true` to use test sheet pages.
 
 ---
 

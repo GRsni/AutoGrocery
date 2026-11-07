@@ -470,3 +470,288 @@ func TestLoadCredentials_MissingPasswordKey(t *testing.T) {
 		t.Fatalf("LoadCredentials did not throw error")
 	}
 }
+
+// Tests for humanDelay (verify no panic)
+func TestHumanDelay_NoPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("humanDelay() panicked: %v", r)
+		}
+	}()
+	humanDelay()
+}
+
+// Additional tests for isTotalCorrect with more edge cases
+func TestIsTotalCorrect_MoreEdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		qty      float64
+		price    float64
+		total    float64
+		expected bool
+	}{
+		{
+			name:     "floating point rounding",
+			qty:      3.0,
+			price:    0.33,
+			total:    0.99,
+			expected: true,
+		},
+		{
+			name:     "zero quantity zero total",
+			qty:      0.0,
+			price:    5.0,
+			total:    0.0,
+			expected: true,
+		},
+		{
+			name:     "zero price zero total",
+			qty:      5.0,
+			price:    0.0,
+			total:    0.0,
+			expected: true,
+		},
+		{
+			name:     "off by more than epsilon",
+			qty:      1.0,
+			price:    10.0,
+			total:    10.10,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isTotalCorrect(tt.qty, tt.price, tt.total)
+			if result != tt.expected {
+				t.Errorf("isTotalCorrect(%v, %v, %v) = %v, expected %v",
+					tt.qty, tt.price, tt.total, result, tt.expected)
+			}
+		})
+	}
+}
+
+// Tests for getDateAndTotal with more edge cases
+func TestGetDateAndTotal_MoreEdgeCases(t *testing.T) {
+	d := func(day, month, year int) time.Time {
+		return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	}
+
+	tests := []struct {
+		name          string
+		input         string
+		expectErr     bool
+		expectedDate  time.Time
+		expectedTotal float64
+	}{
+		{
+			name:          "single digit month and day (should fail - requires zero-padded)",
+			input:         "Header\n1/1/2024\n10.00",
+			expectErr:     true,
+			expectedDate:  time.Time{},
+			expectedTotal: 0.0,
+		},
+		{
+			name:          "zero-padded single digit month and day",
+			input:         "Header\n01/01/2024\n10.00",
+			expectErr:     false,
+			expectedDate:  d(1, 1, 2024),
+			expectedTotal: 10.0,
+		},
+		{
+			name:          "total with spaces around",
+			input:         "Header\n15/06/2024\n 25.99 ",
+			expectErr:     false,
+			expectedDate:  d(15, 6, 2024),
+			expectedTotal: 25.99,
+		},
+		{
+			name:          "very large total",
+			input:         "Header\n01/01/2024\n9999.99",
+			expectErr:     false,
+			expectedDate:  d(1, 1, 2024),
+			expectedTotal: 9999.99,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, total, err := getDateAndTotal(tt.input)
+
+			if tt.expectErr && err == nil {
+				t.Error("Expected error but got nil")
+			}
+			if !tt.expectErr && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+
+			if !tt.expectErr && !result.IsZero() {
+				if !result.Equal(tt.expectedDate) {
+					t.Errorf("Date = %v, want %v", result, tt.expectedDate)
+				}
+			}
+
+			if !tt.expectErr && !utils.FloatsEqual(total, tt.expectedTotal) {
+				t.Errorf("Total = %v, want %v", total, tt.expectedTotal)
+			}
+		})
+	}
+}
+
+// Tests for removeCancelledItems with more edge cases
+func TestRemoveCancelledItems_MoreEdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []internal.Item
+		expected []internal.Item
+	}{
+		{
+			name: "Multiple cancelled pairs - cancels accumulate into non-cancelled",
+			input: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Cancelled: false},
+				{Name: "Apple", Amount: -2.0, Price: 1.5, Cancelled: true},
+				{Name: "Banana", Amount: 3.0, Price: 0.5, Cancelled: false},
+				{Name: "Banana", Amount: -3.0, Price: 0.5, Cancelled: true},
+			},
+			// After cancellation: Apple(2.0 + -2.0 = 0.0), Banana(3.0 + -3.0 = 0.0), cancelled items removed
+			expected: []internal.Item{
+				{Name: "Apple", Amount: 0.0, Price: 1.5, Cancelled: false},
+				{Name: "Banana", Amount: 0.0, Price: 0.5, Cancelled: false},
+			},
+		},
+		{
+			name: "Only cancelled items",
+			input: []internal.Item{
+				{Name: "Apple", Amount: -2.0, Price: 1.5, Cancelled: true},
+			},
+			expected: []internal.Item{},
+		},
+		{
+			name: "Multiple items same name not cancelled - no merging",
+			input: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Cancelled: false},
+				{Name: "Apple", Amount: 1.0, Price: 1.5, Cancelled: false},
+			},
+			// No cancelled items means no accumulation happens; both remain separate
+			expected: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Cancelled: false},
+				{Name: "Apple", Amount: 1.0, Price: 1.5, Cancelled: false},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := removeCancelledItems(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d items, got %d", len(tt.expected), len(result))
+				return
+			}
+			for i, expectedItem := range tt.expected {
+				if i >= len(result) {
+					break
+				}
+				if result[i].Name != expectedItem.Name {
+					t.Errorf("Item %d: expected name %s, got %s", i, expectedItem.Name, result[i].Name)
+				}
+				if !utils.FloatsEqual(result[i].Amount, expectedItem.Amount) {
+					t.Errorf("Item %d: expected amount %v, got %v", i, expectedItem.Amount, result[i].Amount)
+				}
+			}
+		})
+	}
+}
+
+// Tests for applyDiscounts with more edge cases
+func TestApplyDiscounts_MoreEdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []internal.Item
+		expected []internal.Item
+	}{
+		{
+			name: "Multiple items with discount",
+			input: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 2.0, Discount: -1.0},
+				{Name: "Banana", Amount: 3.0, Price: 1.0, Discount: -0.6},
+			},
+			expected: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 1.5, Discount: -1.0},
+				{Name: "Banana", Amount: 3.0, Price: 0.8, Discount: -0.6},
+			},
+		},
+		{
+			name: "Zero discount on multiple items",
+			input: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 2.0, Discount: 0.0},
+				{Name: "Banana", Amount: 3.0, Price: 1.0, Discount: 0.0},
+			},
+			expected: []internal.Item{
+				{Name: "Apple", Amount: 2.0, Price: 2.0, Discount: 0.0},
+				{Name: "Banana", Amount: 3.0, Price: 1.0, Discount: 0.0},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := applyDiscounts(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d items, got %d", len(tt.expected), len(result))
+				return
+			}
+			for i, expectedItem := range tt.expected {
+				if i >= len(result) {
+					break
+				}
+				if result[i].Name != expectedItem.Name {
+					t.Errorf("Item %d: expected name %s, got %s", i, expectedItem.Name, result[i].Name)
+				}
+				if !utils.FloatsEqual(result[i].Price, expectedItem.Price) {
+					t.Errorf("Item %d: expected price %v, got %v", i, expectedItem.Price, result[i].Price)
+				}
+			}
+		})
+	}
+}
+
+// Browser-dependent tests (skipped in unit test environment)
+func TestLoginToDia_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping LoginToDia test - requires browser automation")
+}
+
+func TestGetTicketList_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping GetTicketList test - requires browser automation")
+}
+
+func TestGetTicketDetails_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping getTicketDetails test - requires browser automation")
+}
+
+func TestGetItemList_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping getItemList test - requires browser automation")
+}
+
+func TestGetItemName_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping getItemName test - requires browser automation")
+}
+
+func TestGetItemQty_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping getItemQty test - requires browser automation")
+}
+
+func TestGetPricePerUnit_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping getPricePerUnit test - requires browser automation")
+}
+
+func TestGetItemTotal_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping getItemTotal test - requires browser automation")
+}
+
+func TestGetDiscount_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping getDiscount test - requires browser automation")
+}
+
+func TestCloseTicketModal_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping closeTicketModal test - requires browser automation")
+}

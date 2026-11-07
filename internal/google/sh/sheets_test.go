@@ -128,28 +128,28 @@ func TestEntryToStr(t *testing.T) {
 		{
 			name:     "normal entry",
 			entry:    Entry{Store: "MERCADONA", Date: d(15, 4, 2024)},
-			expected: fmt.Sprintf("Grocery Ticket: Shop=MERCADONA, Date=%s\n", d(15, 4, 2024).Format(constants.TicketDateFormat)),
+			expected: fmt.Sprintf("Grocery Ticket: Shop: MERCADONA, Date: %s, Item count: 0,  Total: 0.000000", d(15, 4, 2024).Format(constants.TicketDateFormat)),
 		},
 		{
 			name:     "different store",
 			entry:    Entry{Store: "DIA", Date: d(1, 1, 2023)},
-			expected: fmt.Sprintf("Grocery Ticket: Shop=DIA, Date=%s\n", d(1, 1, 2023).Format(constants.TicketDateFormat)),
+			expected: fmt.Sprintf("Grocery Ticket: Shop: DIA, Date: %s, Item count: 0,  Total: 0.000000", d(1, 1, 2023).Format(constants.TicketDateFormat)),
 		},
 		{
 			name:     "zero date",
 			entry:    Entry{Store: "CARREFOUR", Date: time.Time{}},
-			expected: fmt.Sprintf("Grocery Ticket: Shop=CARREFOUR, Date=%s\n", time.Time{}.Format(constants.TicketDateFormat)),
+			expected: fmt.Sprintf("Grocery Ticket: Shop: CARREFOUR, Date: %s, Item count: 0,  Total: 0.000000", time.Time{}.Format(constants.TicketDateFormat)),
 		},
 		{
 			name:     "empty store",
 			entry:    Entry{Store: "", Date: d(10, 6, 2024)},
-			expected: fmt.Sprintf("Grocery Ticket: Shop=, Date=%s\n", d(10, 6, 2024).Format(constants.TicketDateFormat)),
+			expected: fmt.Sprintf("Grocery Ticket: Shop: , Date: %s, Item count: 0,  Total: 0.000000", d(10, 6, 2024).Format(constants.TicketDateFormat)),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := EntryToStr(tt.entry)
+			got := tt.entry.EntryToStr()
 			if got != tt.expected {
 				t.Errorf("got %q, want %q", got, tt.expected)
 			}
@@ -843,5 +843,491 @@ func TestGetStoreNameAndId(t *testing.T) {
 				t.Errorf("id = %q, want %q", gotId, tt.wantId)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Entry.ToValueRange
+// ---------------------------------------------------------------------------
+
+func TestEntryToValueRange(t *testing.T) {
+	d := func(day, month, year int) time.Time {
+		return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	}
+
+	t.Run("empty items returns error", func(t *testing.T) {
+		entry := Entry{Store: "MERCADONA", Date: d(15, 4, 2024), Id: "M001"}
+		_, err := entry.ToValueRange()
+		if err == nil {
+			t.Fatal("expected error for empty items, got nil")
+		}
+	})
+
+	t.Run("single item with date and store metadata", func(t *testing.T) {
+		entry := Entry{
+			Store: "MERCADONA",
+			Id:    "M001",
+			Date:  d(15, 4, 2024),
+			Items: Items{{Name: "Apple", Amount: 2.5, Price: 3.99}},
+		}
+		vr, err := entry.ToValueRange()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if vr.MajorDimension != "ROWS" {
+			t.Errorf("MajorDimension = %q, want %q", vr.MajorDimension, "ROWS")
+		}
+		if len(vr.Values) != 1 {
+			t.Fatalf("got %d rows, want 1", len(vr.Values))
+		}
+		// First row should have date in column 0 and store+id in column 1
+		if vr.Values[0][0] != "15/04/2024" {
+			t.Errorf("row[0][0] = %v, want %v", vr.Values[0][0], "15/04/2024")
+		}
+		if vr.Values[0][1] != "MERCADONA\nM001" {
+			t.Errorf("row[0][1] = %q, want %q", vr.Values[0][1], "MERCADONA\nM001")
+		}
+		// Item columns
+		if vr.Values[0][2] != "Apple" {
+			t.Errorf("row[0][2] = %v, want %v", vr.Values[0][2], "Apple")
+		}
+	})
+
+	t.Run("multiple items", func(t *testing.T) {
+		entry := Entry{
+			Store: "DIA",
+			Id:    "D001",
+			Date:  d(1, 1, 2024),
+			Items: Items{
+				{Name: "Apple", Amount: 2.5, Price: 3.99},
+				{Name: "Banana", Amount: 1.0, Price: 2.50},
+			},
+		}
+		vr, err := entry.ToValueRange()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(vr.Values) != 2 {
+			t.Fatalf("got %d rows, want 2", len(vr.Values))
+		}
+		// First row has date/store metadata
+		if vr.Values[0][0] != "01/01/2024" {
+			t.Errorf("row[0][0] = %v, want %v", vr.Values[0][0], "01/01/2024")
+		}
+		if vr.Values[0][1] != "DIA\nD001" {
+			t.Errorf("row[0][1] = %q, want %q", vr.Values[0][1], "DIA\nD001")
+		}
+		// Second row should have empty date/store
+		if vr.Values[1][0] != "" {
+			t.Errorf("row[1][0] = %v, want empty", vr.Values[1][0])
+		}
+		if vr.Values[1][1] != "" {
+			t.Errorf("row[1][1] = %v, want empty", vr.Values[1][1])
+		}
+	})
+
+	t.Run("plus sign prefix is escaped", func(t *testing.T) {
+		entry := Entry{
+			Store: "MERCADONA",
+			Id:    "",
+			Date:  d(10, 6, 2024),
+			Items: Items{{Name: "+Discount", Amount: -5.0, Price: 0}},
+		}
+		vr, err := entry.ToValueRange()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if vr.Values[0][2] != "'+Discount" {
+			t.Errorf("row[0][2] = %q, want %q", vr.Values[0][2], "'+Discount")
+		}
+	})
+
+	t.Run("plus sign in middle of name is not escaped", func(t *testing.T) {
+		entry := Entry{
+			Store: "DIA",
+			Id:    "",
+			Date:  d(5, 3, 2024),
+			Items: Items{{Name: "A+B Mix", Amount: 1.0, Price: 10.0}},
+		}
+		vr, err := entry.ToValueRange()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if vr.Values[0][2] != "A+B Mix" {
+			t.Errorf("row[0][2] = %q, want %q", vr.Values[0][2], "A+B Mix")
+		}
+	})
+
+	t.Run("zero total and zero items amount", func(t *testing.T) {
+		entry := Entry{
+			Store: "CARREFOUR",
+			Id:    "C001",
+			Date:  d(1, 1, 2024),
+			Items: Items{{Name: "Free Item", Amount: 0, Price: 0}},
+		}
+		vr, err := entry.ToValueRange()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(vr.Values) != 1 {
+			t.Fatalf("got %d rows, want 1", len(vr.Values))
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// getEntryItem
+// ---------------------------------------------------------------------------
+
+func TestGetEntryItem(t *testing.T) {
+	tests := []struct {
+		name      string
+		row       []any
+		wantName  string
+		wantAmt   float64
+		wantPrice float64
+		wantNil   bool
+	}{
+		{
+			name:      "valid item with all fields",
+			row:       []any{"", "", "Apple", "2.5", "3.99"},
+			wantName:  "Apple",
+			wantAmt:   2.5,
+			wantPrice: 3.99,
+			wantNil:   false,
+		},
+		{
+			name:    "missing name",
+			row:     []any{"", "", "", "2.5", "3.99"},
+			wantNil: true,
+		},
+		{
+			name:    "missing amount",
+			row:     []any{"", "", "Apple", "", "3.99"},
+			wantNil: true,
+		},
+		{
+			name:    "missing price",
+			row:     []any{"", "", "Apple", "2.5", ""},
+			wantNil: true,
+		},
+		{
+			name:      "item with /kg price",
+			row:       []any{"", "", "Banana", "1.5", "2.50/kg"},
+			wantName:  "Banana",
+			wantAmt:   1.5,
+			wantPrice: 2.50,
+			wantNil:   false,
+		},
+		{
+			name:      "item with euro symbol",
+			row:       []any{"", "", "Cheese", "1.0", "€15.99/kg"},
+			wantName:  "Cheese",
+			wantAmt:   1.0,
+			wantPrice: 15.99,
+			wantNil:   false,
+		},
+		{
+			name:    "row too short",
+			row:     []any{"", ""},
+			wantNil: true,
+		},
+		{
+			name:    "empty row",
+			row:     []any{"", "", "", "", ""},
+			wantNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getEntryItem(tt.row)
+			if tt.wantNil {
+				if got != nil {
+					t.Errorf("got non-nil item, want nil")
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("got nil item, want non-nil")
+			}
+			if got.Name != tt.wantName {
+				t.Errorf("Name = %q, want %q", got.Name, tt.wantName)
+			}
+			if !utils.FloatsEqual(got.Amount, tt.wantAmt) {
+				t.Errorf("Amount = %f, want %f", got.Amount, tt.wantAmt)
+			}
+			if !utils.FloatsEqual(got.Price, tt.wantPrice) {
+				t.Errorf("Price = %f, want %f", got.Price, tt.wantPrice)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// getEntryFromSheet edge cases
+// ---------------------------------------------------------------------------
+
+func TestGetEntryFromSheet_EdgeCases(t *testing.T) {
+	t.Run("row length less than 6 returns error", func(t *testing.T) {
+		rows := [][]any{{"15/04/2024", "MERCADONA"}} // only 2 columns
+		resp := &sheets.ValueRange{Values: rows}
+		_, _, err := getEntryFromSheet(resp, 0)
+		if err == nil {
+			t.Fatal("expected error for short row, got nil")
+		}
+	})
+
+	t.Run("non-zero starting row", func(t *testing.T) {
+		rows := [][]any{
+			{"header1", "header2", "", "", "", ""},
+			{"15/04/2024", "MERCADONA", "", "", "", ""},
+			{"item1", "2.99", "", "", "", ""},
+			{"", "", "", "", "TOTAL", "45.50 €"},
+		}
+		resp := &sheets.ValueRange{Values: rows}
+		got, finalRow, err := getEntryFromSheet(resp, 1)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Store != "MERCADONA" {
+			t.Errorf("Store = %q, want %q", got.Store, "MERCADONA")
+		}
+		if !utils.FloatsEqual(got.Total, 45.50) {
+			t.Errorf("Total = %f, want %f", got.Total, 45.50)
+		}
+		if got.FirstRow != 3 { // startingRow + 2
+			t.Errorf("FirstRow = %d, want %d", got.FirstRow, 3)
+		}
+		if finalRow != 3 { // 0-based index of TOTAL row
+			t.Errorf("finalRow = %d, want %d", finalRow, 3)
+		}
+	})
+
+	t.Run("items accumulated from multiple rows", func(t *testing.T) {
+		rows := [][]any{
+			{"20/06/2024", "DIA", "", "", "", ""},
+			{"", "", "item1", "2.0", "5.00", ""},
+			{"", "", "item2", "1.5", "3.00", ""},
+			{"", "", "item3", "3.0", "8.99", ""},
+			{"", "", "", "", "TOTAL", "89.99 €"},
+		}
+		resp := &sheets.ValueRange{Values: rows}
+		got, _, err := getEntryFromSheet(resp, 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got.Items) != 3 {
+			t.Fatalf("got %d items, want 3", len(got.Items))
+		}
+		if got.Items[0].Name != "item1" || got.Items[1].Name != "item2" || got.Items[2].Name != "item3" {
+			t.Errorf("unexpected item names: %v", got.Items)
+		}
+	})
+
+	t.Run("empty date skips ticket parsing", func(t *testing.T) {
+		rows := [][]any{{"", "MERCADONA", "", "", "", ""}, {"item1", "2.99", "", "", "", ""}}
+		resp := &sheets.ValueRange{Values: rows}
+		got, _, err := getEntryFromSheet(resp, 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Empty date means the ticket parsing block is skipped; entry has zero values
+		if got.Store != "" {
+			t.Errorf("Store = %q, want empty (skipped)", got.Store)
+		}
+	})
+
+	t.Run("ticket with items before TOTAL found", func(t *testing.T) {
+		rows := [][]any{
+			{"15/04/2024", "CARREFOUR", "", "", "", ""},
+			{"", "", "item1", "5.00", "3.00", ""},
+			{"", "", "item2", "10.00", "2.00", ""},
+			{"", "", "", "", "TOTAL", "150.00 €"},
+		}
+		resp := &sheets.ValueRange{Values: rows}
+		got, _, err := getEntryFromSheet(resp, 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got.Items) != 2 {
+			t.Fatalf("got %d items, want 2", len(got.Items))
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// isRowEmpty edge cases
+// ---------------------------------------------------------------------------
+
+func TestIsRowEmpty_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name string
+		row  []any
+		want bool
+	}{
+		{
+			name: "single element not 0,00 €",
+			row:  []any{"something"},
+			want: false,
+		},
+		{
+			name: "two elements with content in first",
+			row:  []any{"data", "0,00 €"},
+			want: false,
+		},
+		{
+			name: "two elements empty first with 0,00 €",
+			row:  []any{"", "0,00 €"},
+			want: true,
+		},
+		{
+			name: "three elements middle has content",
+			row:  []any{"", "data", "", "0,00 €"},
+			want: false,
+		},
+		{
+			name: "last element not 0,00 €",
+			row:  []any{"", "", "", "", "", "123.45 €"},
+			want: false,
+		},
+		{
+			name: "all empty except last with 0,00 €",
+			row:  []any{"", "", "", "", "", "", "0,00 €"},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isRowEmpty(tt.row)
+			if got != tt.want {
+				t.Errorf("isRowEmpty(%v) = %v, want %v", tt.row, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// EntryToStr with items and total
+// ---------------------------------------------------------------------------
+
+func TestEntryToStr_WithItemsAndTotal(t *testing.T) {
+	d := func(day, month, year int) time.Time {
+		return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	}
+
+	tests := []struct {
+		name     string
+		entry    Entry
+		expected string
+	}{
+		{
+			name: "entry with items shows count",
+			entry: Entry{
+				Store: "MERCADONA",
+				Date:  d(15, 4, 2024),
+				Items: Items{{Name: "Apple", Amount: 2.5, Price: 3.99}, {Name: "Banana", Amount: 1.0, Price: 2.50}},
+				Total: 45.50,
+			},
+			expected: "Grocery Ticket: Shop: MERCADONA, Date: 15/04/2024, Item count: 2,  Total: 45.500000",
+		},
+		{
+			name: "entry with single item",
+			entry: Entry{
+				Store: "DIA",
+				Date:  d(1, 1, 2024),
+				Items: Items{{Name: "Item1", Amount: 1.0, Price: 10.0}},
+				Total: 10.0,
+			},
+			expected: "Grocery Ticket: Shop: DIA, Date: 01/01/2024, Item count: 1,  Total: 10.000000",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.entry.EntryToStr()
+			if got != tt.expected {
+				t.Errorf("got %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetSheetTicketList row length validation
+// ---------------------------------------------------------------------------
+
+func TestGetSheetTicketList_RowLengthError(t *testing.T) {
+	m := testManager(&fakeValues{
+		getResp: &sheets.ValueRange{Values: [][]any{{"15/04/2024", "MERCADONA"}}}, // only 2 columns
+	})
+
+	_, err := GetSheetTicketList(m, "A1:F300")
+	if err == nil {
+		t.Fatal("expected error for short row, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetLastEntryForStore returns correct entry fields
+// ---------------------------------------------------------------------------
+
+func TestGetLastEntryForStore_Fields(t *testing.T) {
+	d := func(day int) time.Time { return time.Date(2024, 1, day, 0, 0, 0, 0, time.UTC) }
+
+	tickets := []Entry{
+		{Store: "MERCADONA", Date: d(1), Id: "M001", FirstRow: 1, LastRow: 5, Total: 45.50},
+		{Store: "DIA", Date: d(2), Id: "D001", FirstRow: 6, LastRow: 10, Total: 23.75},
+		{Store: "MERCADONA", Date: d(3), Id: "M002", FirstRow: 11, LastRow: 15, Total: 89.99},
+	}
+
+	got := GetLastEntryForStore(tickets, "MERCADONA")
+	if got == nil {
+		t.Fatal("got nil, want entry")
+	}
+	if got.Id != "M002" {
+		t.Errorf("Id = %q, want %q", got.Id, "M002")
+	}
+	if got.LastRow != 15 {
+		t.Errorf("LastRow = %d, want %d", got.LastRow, 15)
+	}
+	if !utils.FloatsEqual(got.Total, 89.99) {
+		t.Errorf("Total = %f, want %f", got.Total, 89.99)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetSheetTicketList with items parsed
+// ---------------------------------------------------------------------------
+
+func TestGetSheetTicketList_Items(t *testing.T) {
+	m := testManager(&fakeValues{
+		getResp: &sheets.ValueRange{Values: [][]any{
+			{"15/04/2024", "MERCADONA", "", "", "", ""},
+			{"", "", "Apple", "2.5", "3.99", ""},
+			{"", "", "Banana", "1.0", "2.50/kg", ""},
+			{"", "", "", "", "TOTAL", "45.50 €"},
+		}},
+	})
+
+	got, err := GetSheetTicketList(m, "A1:F300")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d entries, want 1", len(got))
+	}
+	if len(got[0].Items) != 2 {
+		t.Fatalf("got %d items, want 2", len(got[0].Items))
+	}
+	if got[0].Items[0].Name != "Apple" {
+		t.Errorf("Item[0].Name = %q, want %q", got[0].Items[0].Name, "Apple")
+	}
+	if !utils.FloatsEqual(got[0].Items[0].Amount, 2.5) {
+		t.Errorf("Item[0].Amount = %f, want %f", got[0].Items[0].Amount, 2.5)
+	}
+	if !utils.FloatsEqual(got[0].Items[1].Price, 2.50) {
+		t.Errorf("Item[1].Price = %f, want %f", got[0].Items[1].Price, 2.50)
 	}
 }

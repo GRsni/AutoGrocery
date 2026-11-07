@@ -261,6 +261,9 @@ func getStoreNameAndId(input string) (string, string) {
 }
 
 func getEntryItem(row []any) *Item {
+	if len(row) < 5 {
+		return nil
+	}
 	if utils.ExtractString(row[2]) != "" && utils.ExtractString(row[3]) != "" && utils.ExtractString(row[4]) != "" {
 		amount := utils.ParseQty(utils.ExtractString(row[3]))
 		price := utils.ParsePrice(utils.ExtractString(row[4]))

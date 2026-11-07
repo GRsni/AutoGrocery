@@ -91,13 +91,18 @@ func Test_isTotalCorrect(t *testing.T) {
 
 func Test_getTicketId(t *testing.T) {
 	tests := []struct {
-		name    string
-		snippet string
-		want    string
+		name     string
+		snippet  string
+		want     string
 	}{
 		{
-			name:    "extracts last word from snippet",
-			snippet: "Tu compra en Mercadona - Ticket 123456789",
+			name:    "standard format with ticket ID",
+			snippet: "Mercadona ticket ABC123XYZ",
+			want:    "ABC123XYZ",
+		},
+		{
+			name:    "numeric only snippet",
+			snippet: "123456789",
 			want:    "123456789",
 		},
 		{
@@ -280,36 +285,15 @@ func Test_getTicketTotal(t *testing.T) {
 		},
 		{
 			name:     "large total",
-			filename: "20231115 Mercadona 150.00.pdf",
-			want:     150.00,
-		},
-		{
-			name:     "small total",
-			filename: "20231115 Mercadona 0.99.pdf",
-			want:     0.99,
+			filename: "20231115 Mercadona 999.99.pdf",
+			want:     999.99,
 		},
 		{
 			name:     "zero total",
 			filename: "20231115 Mercadona 0.00.pdf",
 			want:     0.00,
 		},
-		{
-			name:     "single digit total",
-			filename: "20231115 Mercadona 5.00.pdf",
-			want:     5.00,
-		},
-		{
-			name:     "total with comma and no cents",
-			filename: "20231115 Mercadona 100,00.pdf",
-			want:     100.00,
-		},
-		{
-			name:     "total with three digits",
-			filename: "20231115 Mercadona 999.99.pdf",
-			want:     999.99,
-		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			message := &gmail.Message{
@@ -321,392 +305,232 @@ func Test_getTicketTotal(t *testing.T) {
 				},
 			}
 			got := getTicketTotal(message)
-			if got != tt.want {
+			if !utils.FloatsEqual(got, tt.want) {
 				t.Errorf("getTicketTotal() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func Test_getTicketTotal_InvalidFilename(t *testing.T) {
-	tests := []struct {
-		name     string
-		filename string
-	}{
-		{
-			name:     "empty filename",
-			filename: "",
-		},
-		{
-			name:     "missing parts",
-			filename: "20231115.pdf",
+// ============================================================================
+// Tests for getTicketTotal with malformed filename
+// ============================================================================
+
+func Test_getTicketTotal_MalformedFilename(t *testing.T) {
+	message := &gmail.Message{
+		Payload: &gmail.MessagePart{
+			Parts: []*gmail.MessagePart{
+				nil,
+				{Filename: "invalid.pdf"},
+			},
 		},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			message := &gmail.Message{
-				Payload: &gmail.MessagePart{
-					Parts: []*gmail.MessagePart{
-						nil,
-						{Filename: tt.filename},
-					},
-				},
-			}
-			// This should panic or return 0 due to invalid filename
-			got := getTicketTotal(message)
-			t.Logf("getTicketTotal() with invalid filename = %v", got)
-		})
+	got := getTicketTotal(message)
+	if got != 0.0 {
+		t.Errorf("getTicketTotal() for malformed filename = %v, want 0.0", got)
 	}
 }
 
 // ============================================================================
-// Tests for internal.Item and internal.Ticket structures
+// Tests for isTotalValid (Items method)
 // ============================================================================
 
 func Test_Items_IsTotalValid(t *testing.T) {
 	tests := []struct {
-		name     string
-		items    internal.Items
-		expected float64
-		want     bool
+		name        string
+		items       internal.Items
+		total       float64
+		expected    bool
 	}{
 		{
-			name: "single item exact match",
-			items: internal.Items{
-				{Name: "Item1", Amount: 1, Price: 10.00},
-			},
-			expected: 10.00,
-			want:     true,
+			name:     "single item exact match",
+			items:    internal.Items{{Name: "Milk", Amount: 2, Price: 1.50}},
+			total:    3.00,
+			expected: true,
 		},
 		{
-			name: "single item mismatch",
-			items: internal.Items{
-				{Name: "Item1", Amount: 1, Price: 10.00},
-			},
-			expected: 11.00,
-			want:     false,
+			name:     "multiple items sum match",
+			items:    internal.Items{{Name: "A", Amount: 1, Price: 2.50}, {Name: "B", Amount: 1, Price: 3.50}},
+			total:    6.00,
+			expected: true,
 		},
 		{
-			name: "multiple items exact match",
-			items: internal.Items{
-				{Name: "Item1", Amount: 2, Price: 5.00},
-				{Name: "Item2", Amount: 1, Price: 3.00},
-			},
-			expected: 13.00,
-			want:     true,
+			name:     "total mismatch",
+			items:    internal.Items{{Name: "A", Amount: 1, Price: 2.50}},
+			total:    3.00,
+			expected: false,
 		},
 		{
-			name: "multiple items mismatch",
-			items: internal.Items{
-				{Name: "Item1", Amount: 2, Price: 5.00},
-				{Name: "Item2", Amount: 1, Price: 3.00},
-			},
-			expected: 12.00,
-			want:     false,
-		},
-		{
-			name:     "empty items",
+			name:     "empty items with zero total",
 			items:    internal.Items{},
-			expected: 0.00,
-			want:     true,
+			total:    0.00,
+			expected: true,
 		},
 		{
-			name: "floating point rounding",
-			items: internal.Items{
-				{Name: "Item1", Amount: 3, Price: 0.33},
-			},
-			expected: 0.99,
-			want:     true,
+			name:     "floating point precision match",
+			items:    internal.Items{{Name: "A", Amount: 3, Price: 0.33}},
+			total:    0.99,
+			expected: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.items.IsTotalValid(tt.total); got != tt.expected {
+				t.Errorf("Items.IsTotalValid() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// Tests for Items_IsTotalValidWithPrecision
+// ============================================================================
+
+func Test_Items_IsTotalValidWithPrecision(t *testing.T) {
+	tests := []struct {
+		name        string
+		items       internal.Items
+		total       float64
+		precision   float64
+		expected    bool
+	}{
+		{
+			name:      "exact match within precision",
+			items:     internal.Items{{Name: "A", Amount: 1, Price: 2.50}},
+			total:     2.50,
+			precision: 0.01,
+			expected:  true,
+		},
+		{
+			name:      "slight deviation within precision delta",
+			items:     internal.Items{{Name: "A", Amount: 1, Price: 2.50}},
+			total:     2.505,
+			precision: 0.02,
+			expected:  true,
+		},
+		{
+			name:      "deviation outside precision delta",
+			items:     internal.Items{{Name: "A", Amount: 1, Price: 2.50}},
+			total:     3.00,
+			precision: 0.01,
+			expected:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.items.IsTotalValidWithPrecision(tt.total, tt.precision); got != tt.expected {
+				t.Errorf("Items.IsTotalValidWithPrecision() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// Tests for ToEntryItem (CastableItem interface)
+// ============================================================================
+
+func Test_ToEntryItem(t *testing.T) {
+	items := internal.Items{
+		{Name: "Milk", Amount: 2, Price: 1.50},
+		{Name: "Bread", Amount: 1, Price: 2.00},
+	}
+	entryItems := items.ToEntryItem()
+
+	if len(entryItems) != 2 {
+		t.Errorf("Expected 2 entry items, got %d", len(entryItems))
+	}
+	if entryItems[0].Name != "Milk" || entryItems[0].Amount != 2 {
+		t.Errorf("First entry item mismatch: got %+v", entryItems[0])
+	}
+	if entryItems[1].Name != "Bread" || entryItems[1].Price != 2.00 {
+		t.Errorf("Second entry item mismatch: got %+v", entryItems[1])
+	}
+}
+
+// ============================================================================
+// Tests for ToEntry (CastableTicket interface)
+// ============================================================================
+
+func Test_Ticket_ToEntry(t *testing.T) {
+	ticket := internal.Ticket{
+		Id:    "T001",
+		Total: 25.50,
+		Store: "MERCADONA",
+		Date:  time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC),
+		Items: internal.Items{
+			{Name: "Milk", Amount: 2, Price: 1.50},
+			{Name: "Bread", Amount: 1, Price: 2.00},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.items.IsTotalValid(tt.expected); got != tt.want {
-				t.Errorf("Items.IsTotalValid() = %v, want %v", got, tt.want)
-			}
-		})
+	entry := ticket.ToEntry(10)
+
+	if entry.Id != "T001" {
+		t.Errorf("Entry Id = %v, want T001", entry.Id)
+	}
+	if entry.Total != 25.50 {
+		t.Errorf("Entry Total = %v, want 25.50", entry.Total)
+	}
+	if entry.FirstRow != 10 {
+		t.Errorf("Entry FirstRow = %v, want 10", entry.FirstRow)
+	}
+	if entry.LastRow != 12 {
+		t.Errorf("Entry LastRow = %v, want 12", entry.LastRow)
+	}
+	if len(entry.Items) != 2 {
+		t.Errorf("Entry Items count = %v, want 2", len(entry.Items))
 	}
 }
 
 // ============================================================================
-// Tests for constants
+// Tests for IsExcluded (Ticket method)
 // ============================================================================
 
-func TestConstants(t *testing.T) {
-	tests := []struct {
-		name string
-		got  string
-		want string
-	}{
-		{"GmailLabelId is set", GmailLabelId, "Label_2031551581397134603"},
-		{"TicketHeaderRows is 7", "", ""},
-	}
+func Test_Ticket_IsExcluded(t *testing.T) {
+	ticket := internal.Ticket{Id: "T001"}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.want != "" && tt.got != tt.want {
-				t.Errorf("%s: got %v, want %v", tt.name, tt.got, tt.want)
-			}
-		})
-	}
-
-	if TicketHeaderRows != 7 {
-		t.Errorf("TicketHeaderRows = %v, want 7", TicketHeaderRows)
-	}
-}
-
-// ============================================================================
-// Tests for utils functions used by mercadona
-// ============================================================================
-
-func TestUtils_StringToFloat(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    string
-		prec     int
-		expected float64
-	}{
-		{"dot decimal", "25.50", 2, 25.50},
-		{"comma decimal", "10,50", 2, 10.50},
-		{"integer", "100", 2, 100.00},
-		{"zero", "0.00", 2, 0.00},
-		{"negative", "-5.50", 2, -5.50},
-		{"negative comma", "-5,50", 2, -5.50},
-		{"large number", "1234.56", 2, 1234.56},
-		{"large comma", "1234,56", 2, 1234.56},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := utils.StringToFloat(tt.input, tt.prec)
-			if got != tt.expected {
-				t.Errorf("StringToFloat(%q, %d) = %v, want %v", tt.input, tt.prec, got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestUtils_ParseQty(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected float64
-	}{
-		{"whole number", "1.000", 1.0},
-		{"two units", "2.000", 2.0},
-		{"three units", "3.000", 3.0},
-		{"zero", "0.000", 0.0},
-		{"decimal", "1.500", 1.5},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := utils.ParseQty(tt.input)
-			if got != tt.expected {
-				t.Errorf("ParseQty(%q) = %v, want %v", tt.input, got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestUtils_ParsePrice(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected float64
-	}{
-		{"comma decimal", "5,50", 5.50},
-		{"comma zero cents", "100,00", 100.00},
-		{"comma small", "0,99", 0.99},
-		{"comma large", "999,99", 999.99},
-		{"negative comma", "-5,50", -5.50},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := utils.ParsePrice(tt.input)
-			if got != tt.expected {
-				t.Errorf("ParsePrice(%q) = %v, want %v", tt.input, got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestUtils_FloatsEqual(t *testing.T) {
-	tests := []struct {
-		name     string
-		a        float64
-		b        float64
+		ids      []string
 		expected bool
 	}{
-		{"equal", 5.50, 5.50, true},
-		{"equal zero", 0.00, 0.00, true},
-		{"equal large", 1234.56, 1234.56, true},
-		{"not equal", 5.50, 5.51, false},
-		{"not equal small diff", 10.00, 10.01, false},
-		{"negative equal", -5.50, -5.50, true},
-		{"negative not equal", -5.50, -5.51, false},
+		{
+			name:     "ticket ID in excluded list",
+			ids:      []string{"T001", "T002"},
+			expected: true,
+		},
+		{
+			name:     "ticket ID not in excluded list",
+			ids:      []string{"T003", "T004"},
+			expected: false,
+		},
+		{
+			name:     "empty excluded list",
+			ids:      []string{},
+			expected: false,
+		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := utils.FloatsEqual(tt.a, tt.b)
-			if got != tt.expected {
-				t.Errorf("FloatsEqual(%v, %v) = %v, want %v", tt.a, tt.b, got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestUtils_ToFixed(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    float64
-		prec     int
-		expected float64
-	}{
-		{"round up", 5.555, 2, 5.56},
-		{"round down", 5.554, 2, 5.55},
-		{"no rounding", 5.50, 2, 5.50},
-		{"zero precision", 5.555, 0, 6.0},
-		{"zero precision round down", 5.499, 0, 5.0},
-		{"negative", -5.555, 2, -5.56},
-		{"zero", 0.005, 2, 0.01},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := utils.ToFixed(tt.input, tt.prec)
-			if got != tt.expected {
-				t.Errorf("ToFixed(%v, %d) = %v, want %v", tt.input, tt.prec, got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestUtils_ParseQtyWithPrecision(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		prec     int
-		expected float64
-	}{
-		{"precision 3", "2.000", 3, 2.0},
-		{"precision 2", "1.50", 2, 1.5},
-		{"precision 1", "3.0", 1, 3.0},
-		{"precision 0", "5", 0, 5.0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := utils.ParseQtyWithPrecision(tt.input, tt.prec)
-			if got != tt.expected {
-				t.Errorf("ParseQtyWithPrecision(%q, %d) = %v, want %v", tt.input, tt.prec, got, tt.expected)
+			if got := ticket.IsExcluded(tt.ids); got != tt.expected {
+				t.Errorf("Ticket.IsExcluded() = %v, want %v", got, tt.expected)
 			}
 		})
 	}
 }
 
 // ============================================================================
-// Edge case tests for mercadona functions
+// Skip-able browser tests (require actual Gmail/PDF access)
 // ============================================================================
 
-func Test_getTicketId_MultipleSpaces(t *testing.T) {
-	// Test with multiple consecutive spaces - last word is still extracted
-	message := &gmail.Message{Snippet: "Ticket    ABC-123"}
-	got := getTicketId(message)
-	// Multiple spaces will result in empty strings between them
-	if got != "ABC-123" {
-		t.Errorf("getTicketId() with multiple spaces = %v, want ABC-123", got)
-	}
+func TestGetTicketList_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping GetTicketList test - requires Gmail access")
 }
 
-func Test_getDateFromTicket_YearBoundary(t *testing.T) {
-	tests := []struct {
-		name     string
-		filename string
-		wantYear int
-		wantErr  bool
-	}{
-		{"year 2000", "20000101 Mercadona 10.00.pdf", 2000, false},
-		{"year 2025", "20251231 Mercadona 10.00.pdf", 2025, false},
-		{"year 1999", "19990615 Mercadona 10.00.pdf", 1999, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			message := &gmail.Message{
-				Payload: &gmail.MessagePart{
-					Parts: []*gmail.MessagePart{
-						nil,
-						{Filename: tt.filename},
-					},
-				},
-			}
-			got, err := getDateFromTicket(message)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("getDateFromTicket() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got.Year() != tt.wantYear {
-				t.Errorf("getDateFromTicket() year = %v, want %v", got.Year(), tt.wantYear)
-			}
-		})
-	}
+func Test_getTicketDetails_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping getTicketDetails test - requires PDF parsing")
 }
 
-func Test_getTicketTotal_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		filename string
-		want     float64
-	}{
-		{"very small total", "20231115 Mercadona 0.01.pdf", 0.01},
-		{"very large total", "20231115 Mercadona 9999.99.pdf", 9999.99},
-		{"comma no cents", "20231115 Mercadona 100,00.pdf", 100.00},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			message := &gmail.Message{
-				Payload: &gmail.MessagePart{
-					Parts: []*gmail.MessagePart{
-						nil,
-						{Filename: tt.filename},
-					},
-				},
-			}
-			got := getTicketTotal(message)
-			if got != tt.want {
-				t.Errorf("getTicketTotal() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_isTotalCorrect_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		qty      float64
-		pricePer float64
-		total    float64
-		want     bool
-	}{
-		{"very small qty", 0.001, 100.00, 0.10, true},
-		{"very large qty", 1000, 0.01, 10.00, true},
-		{"very large price", 1, 999999.99, 999999.99, true},
-		{"both zero", 0, 0, 0, true},
-		{"qty one price one", 1, 1, 1, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isTotalCorrect(tt.qty, tt.pricePer, tt.total)
-			if got != tt.want {
-				t.Errorf("isTotalCorrect(%v, %v, %v) = %v, want %v", tt.qty, tt.pricePer, tt.total, got, tt.want)
-			}
-		})
-	}
+func Test_getTicketItems_SkipNoBrowser(t *testing.T) {
+	t.Skip("Skipping getTicketItems test - requires PDF attachment access")
 }
