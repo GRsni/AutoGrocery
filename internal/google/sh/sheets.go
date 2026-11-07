@@ -308,6 +308,12 @@ func GetLastEntryForStore(tickets []Entry, shopName string) *Entry {
 
 func WriteToSheet(manager Manager, valueRange *sheets.ValueRange, firstRow int) int {
 	ticketItems := len(valueRange.Values)
+
+	for i, row := range valueRange.Values {
+		totalFunction := fmt.Sprintf("=D%d*E%d", firstRow+i, firstRow+i)
+		valueRange.Values[i] = append(row, totalFunction)
+	}
+
 	writeRange := fmt.Sprintf("%s!A%d:F%d", manager.PageName, firstRow, ticketItems+firstRow+1)
 	totalFunction := fmt.Sprintf("=SUM(F%d:F%d)", firstRow, firstRow+ticketItems-1)
 	valueRange.Values = append(valueRange.Values, []any{"", "", "", "", "TOTAL", totalFunction})

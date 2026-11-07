@@ -123,7 +123,7 @@ func (items Items) ToEntryItem() sh.Items {
 		entryItems = append(entryItems, sh.Item{
 			Name:   ticketItem.Name,
 			Amount: ticketItem.Amount,
-			Price:  ticketItem.Amount})
+			Price:  ticketItem.Price})
 	}
 
 	return entryItems

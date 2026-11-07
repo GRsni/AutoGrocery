@@ -10,6 +10,7 @@ then exports cookies in Netscape format to config/credentials/cookies-www-dia-es
 import json
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from invisible_playwright import InvisiblePlaywright
@@ -20,7 +21,7 @@ COOKIES_FILE = (
 )
 LOGIN_URL = "https://www.dia.es/login"
 PROJECT_ROOT = Path(__file__).parent.parent
-MAX_COOKIES_AGE = 25
+MAX_COOKIES_AGE = 55
 HEADLESS = True
 
 
@@ -73,12 +74,12 @@ def cookies_are_fresh(filepath: Path, max_age_minutes: int = MAX_COOKIES_AGE) ->
     for cookie in existing:
         expiry = cookie["expiry"]
 
-        # Session cookies (expiry=0) are always considered fresh
+        # Session cookies (expiry=0 || -1) are always considered fresh
         # They don't have a time-based expiry
         if expiry == 0 or expiry == -1:
             continue
 
-        age_seconds = expiry - now
+        age_seconds = now - expiry
         age_minutes = age_seconds / 60
 
         # Cookie is expired
@@ -95,7 +96,7 @@ def cookies_are_fresh(filepath: Path, max_age_minutes: int = MAX_COOKIES_AGE) ->
 def export_netscape_cookies(cookies: list[dict], filepath: Path) -> None:
     """Export Playwright cookies to Netscape HTTP Cookie File format."""
     with open(filepath, "w") as f:
-        f.write("# Netscape HTTP Cookie File\n")
+        f.write(f"# Netscape HTTP Cookie File at date ${datetime.today().strftime('%Y-%m-%d-%H-%M-%s')}\n")
         f.write("# https://curl.haxx.se/rfc/cookie_spec.html\n")
         f.write("# This is a generated file! Do not edit.\n\n")
 
@@ -143,7 +144,7 @@ def run_go_service(project_root: Path) -> None:
         else:
             # Fall back to go run for local development
             main_go = project_root / "cmd" / "autogrocery" / "main.go"
-            cmd = ["go", "run", str(main_go)]
+            cmd = ["go", "run", str(main_go), "--stores", "DIA"]
 
     result = subprocess.run(
         cmd,
