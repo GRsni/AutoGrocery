@@ -8,6 +8,6 @@ const CHINO = "CHINO"
 const CARNICERIA = "CARNICERIA"
 const FRUTERIA = "FRUTERÍA"
 
-var Shops = []string{MERCADONA, DIA, CARREFOUR}
+var Stores = []string{MERCADONA, DIA, CARREFOUR}
 
 const TicketDateFormat = "02/01/2006"

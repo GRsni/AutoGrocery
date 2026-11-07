@@ -19,6 +19,16 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
+const HeaderSize = 1
+
+type Item struct {
+	Name   string
+	Amount float64
+	Price  float64
+}
+
+type Items []Item
+
 type Entry struct {
 	Date     time.Time
 	Id       string
@@ -26,13 +36,38 @@ type Entry struct {
 	FirstRow int
 	LastRow  int
 	Total    float64
+	Items    Items
 }
 
-const HeaderSize = 1
+type UploadableEntry interface {
+	EntryToStr() string
+	ToValueRange() *sheets.ValueRange
+}
 
-func EntryToStr(ticket Entry) string {
-	formattedDate := ticket.Date.Format(constants.TicketDateFormat)
-	return fmt.Sprintf("Grocery Ticket: Shop=%s, Date=%s\n", ticket.Store, formattedDate)
+func (entry Entry) EntryToStr() string {
+	formattedDate := entry.Date.Format(constants.TicketDateFormat)
+	return fmt.Sprintf("Grocery Ticket: Shop: %s, Date: %s, Item count: %d,  Total: %2f", entry.Store, formattedDate, len(entry.Items), entry.Total)
+}
+
+func (entry Entry) ToValueRange() (*sheets.ValueRange, error) {
+	var values [][]any
+
+	for _, item := range entry.Items {
+		if item.Name[0] == '+' {
+			item.Name = "'" + item.Name
+		}
+		row := []any{"", "", item.Name, item.Amount, item.Price}
+		values = append(values, row)
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("ticket contains no items to upload")
+	}
+	values[0][0] = entry.Date.Format(constants.TicketDateFormat)
+	values[0][1] = entry.Store + "\n" + entry.Id
+
+	valRange := sheets.ValueRange{MajorDimension: "ROWS", Values: values}
+
+	return &valRange, nil
 }
 
 type ValuesGetCall interface {
@@ -179,12 +214,21 @@ func getEntryFromSheet(resp *sheets.ValueRange, startingRow int) (*Entry, int, e
 	var total float64
 	var finalRow int
 	var ticketId string
+	items := make(Items, 0)
 	row := resp.Values[startingRow]
+
 	if len(utils.ExtractString(row[0])) > 0 && len(utils.ExtractString(row[1])) > 0 {
 		// Found a new ticket, iterate until TOTAL found
 		date = utils.StringToDate(utils.ExtractString(row[0]))
 		store, ticketId = getStoreNameAndId(utils.ExtractString(row[1]))
 		for j := startingRow + 1; j < len(resp.Values); j++ {
+
+			item := getEntryItem(row)
+
+			if item != nil {
+				items = append(items, *item)
+			}
+
 			row = resp.Values[j]
 			if utils.ExtractString(row[4]) != "TOTAL" {
 				continue
@@ -198,7 +242,14 @@ func getEntryFromSheet(resp *sheets.ValueRange, startingRow int) (*Entry, int, e
 			return nil, len(resp.Values), fmt.Errorf("unable to find TOTAL row in rest of sheet")
 		}
 	}
-	ticket := Entry{Date: date, Store: store, Id: ticketId, FirstRow: startingRow + 2, LastRow: finalRow + 2, Total: total}
+	ticket := Entry{
+		Date:     date,
+		Store:    store,
+		Id:       ticketId,
+		FirstRow: startingRow + 2,
+		LastRow:  finalRow + 2,
+		Total:    total,
+		Items:    items}
 	return &ticket, finalRow, nil
 }
 
@@ -207,6 +258,21 @@ func getStoreNameAndId(input string) (string, string) {
 	id := stringParts[len(stringParts)-1]
 	name := stringParts[0]
 	return name, id
+}
+
+func getEntryItem(row []any) *Item {
+	if utils.ExtractString(row[2]) != "" && utils.ExtractString(row[3]) != "" && utils.ExtractString(row[4]) != "" {
+		amount := utils.ParseQty(utils.ExtractString(row[3]))
+		price := utils.ParsePrice(utils.ExtractString(row[4]))
+
+		return &Item{
+			Name:   fmt.Sprint(row[2]),
+			Amount: amount,
+			Price:  price,
+		}
+	}
+
+	return nil
 }
 
 func isRowEmpty(row []any) bool {
@@ -260,17 +326,32 @@ func WriteToSheet(manager Manager, valueRange *sheets.ValueRange, firstRow int) 
 }
 
 func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
+	startIdx := int64(firstRow - 1) // 0-based index of first row (assumes firstRow is 1-based)
 	totalRowIdx := int64(firstRow + ticketItems - 1)
+	endIdx := totalRowIdx + 1 // exclusive, includes total row
 
-	// #cfe2f3 -> R:207 G:226 B:243 normalized to 0-1
-	blueColor := &sheets.Color{
-		Red:   207.0 / 255.0,
-		Green: 226.0 / 255.0,
-		Blue:  243.0 / 255.0,
-		Alpha: 1,
+	blueColor := &sheets.Color{Red: 207.0 / 255.0, Green: 226.0 / 255.0, Blue: 243.0 / 255.0}
+
+	fullRange := &sheets.GridRange{
+		SheetId:          manager.sheetId,
+		StartRowIndex:    startIdx,
+		EndRowIndex:      endIdx,
+		StartColumnIndex: 0,
+		EndColumnIndex:   6,
 	}
 
 	requests := []*sheets.Request{
+		{
+			UnmergeCells: &sheets.UnmergeCellsRequest{Range: fullRange},
+		},
+		// No background, no bold, no border, all cells minus TOTAL ROW
+		{
+			RepeatCell: &sheets.RepeatCellRequest{
+				Range:  fullRange,
+				Cell:   &sheets.CellData{},
+				Fields: "userEnteredFormat(backgroundColorStyle,textFormat,borders)",
+			},
+		},
 		// Blue background + bold for entire TOTAL row (columns C:F = indices 2:6)
 		{
 			RepeatCell: &sheets.RepeatCellRequest{
@@ -283,16 +364,16 @@ func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
 				},
 				Cell: &sheets.CellData{
 					UserEnteredFormat: &sheets.CellFormat{
-						TextFormat:      &sheets.TextFormat{Bold: true},
-						BackgroundColor: blueColor,
+						TextFormat:           &sheets.TextFormat{Bold: true},
+						BackgroundColorStyle: &sheets.ColorStyle{RgbColor: blueColor},
 					},
 				},
-				Fields: "userEnteredFormat(textFormat,backgroundColor)",
+				Fields: "userEnteredFormat(textFormat,backgroundColorStyle)",
 			},
 		},
 		// Box border around the total VALUE cell (column F = index 5)
 		{
-			RepeatCell: &sheets.RepeatCellRequest{
+			UpdateBorders: &sheets.UpdateBordersRequest{
 				Range: &sheets.GridRange{
 					SheetId:          manager.sheetId,
 					StartRowIndex:    totalRowIdx,
@@ -300,17 +381,10 @@ func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
 					StartColumnIndex: 4,
 					EndColumnIndex:   6,
 				},
-				Cell: &sheets.CellData{
-					UserEnteredFormat: &sheets.CellFormat{
-						Borders: &sheets.Borders{
-							Top:    &sheets.Border{Style: "SOLID", Width: 1},
-							Bottom: &sheets.Border{Style: "SOLID", Width: 1},
-							Left:   &sheets.Border{Style: "SOLID", Width: 1},
-							Right:  &sheets.Border{Style: "SOLID", Width: 1},
-						},
-					},
-				},
-				Fields: "userEnteredFormat(borders)",
+				Top:    &sheets.Border{Style: "SOLID"},
+				Bottom: &sheets.Border{Style: "SOLID"},
+				Left:   &sheets.Border{Style: "SOLID"},
+				Right:  &sheets.Border{Style: "SOLID"},
 			},
 		},
 		// Merge the date cell vertically across ticket rows (column A = index 0)

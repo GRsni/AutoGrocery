@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"autoGrocery/internal/google/sh"
 	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"fmt"
@@ -40,6 +41,14 @@ type ValidatedItems interface {
 	IsTotalValidWithPrecision(precision int) bool
 }
 
+type CastableItem interface {
+	ToEntryItem() sh.Item
+}
+
+type CastableTicket interface {
+	ToEntry() sh.Entry
+}
+
 func (ticket Ticket) ToValueRange() (*sheets.ValueRange, error) {
 	var values [][]any
 
@@ -77,7 +86,7 @@ func (items Items) String() string {
 			builder.WriteString(", ")
 		}
 		amountStr := fmt.Sprintf("%.3f", item.Amount)
-		builder.WriteString(fmt.Sprintf("%s (x%s @ €%.3f)", item.Name, amountStr, item.Price))
+		fmt.Fprintf(&builder, "%s (x%s @ €%.3f)", item.Name, amountStr, item.Price)
 	}
 	builder.WriteString("]")
 	return builder.String()
@@ -105,4 +114,28 @@ func (items Items) IsTotalValidWithPrecision(total float64, precision float64) b
 	}
 
 	return utils.FloatsEqualWithDelta(total, utils.ToFixed(itemsTotal, 2), precision)
+}
+
+func (items Items) ToEntryItem() sh.Items {
+	entryItems := make(sh.Items, 0)
+
+	for _, ticketItem := range items {
+		entryItems = append(entryItems, sh.Item{
+			Name:   ticketItem.Name,
+			Amount: ticketItem.Amount,
+			Price:  ticketItem.Amount})
+	}
+
+	return entryItems
+}
+
+func (ticket Ticket) ToEntry(firstRow int) sh.Entry {
+	return sh.Entry{
+		Date:     ticket.Date,
+		Id:       ticket.Id,
+		Store:    ticket.Store,
+		FirstRow: firstRow,
+		LastRow:  firstRow + len(ticket.Items),
+		Total:    ticket.Total,
+		Items:    ticket.Items.ToEntryItem()}
 }

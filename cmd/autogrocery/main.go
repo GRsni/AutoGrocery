@@ -13,8 +13,11 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +48,7 @@ func main() {
 
 	startDate := flag.String("start", "01-01-0001", "Override the default start date of 1st day of current month. Format is DD-MM-YYYY")
 	showVersion := flag.Bool("version", false, "Show version and build date")
+	stores := flag.String("stores", "", "Override the default list of stores to fetch. Send a command separeted list (DIA,MERCADONA,...)")
 	flag.Parse()
 
 	if *showVersion {
@@ -52,21 +56,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	var currentTime time.Time
+	currentTime := parseCurrentTimeOverride(startDate)
 
-	if *startDate != "01-01-0001" {
-		slog.Debug("Start date provided", "DATE", *startDate)
-		parsedDateOverride, err := time.Parse("02-01-2006", *startDate)
-		slog.Info(parsedDateOverride.String())
-		if err != nil {
-			slog.Info("Unable to parse date override, defaulting to today")
-			currentTime = time.Now()
-		} else {
-			currentTime = parsedDateOverride
-		}
-	} else {
-		currentTime = time.Now()
-	}
+	storesToFetch := parseStoreOverride(stores)
 
 	currentYear, currentMonth, currentDay := currentTime.Date()
 	fmt.Println("Current date:", currentYear, constants.FromTimeMonth(currentMonth), currentDay)
@@ -85,19 +77,61 @@ func main() {
 
 	slog.Debug("Fetching date column data from " + SheetReadRange)
 
-	ticketsFromSheet, _ := sh.GetSheetTicketList(sheetsManager, SheetReadRange)
+	ticketsFromSheet, err := sh.GetSheetTicketList(sheetsManager, SheetReadRange)
+	if err != nil {
+		slog.Error("Couldnt load tickets from sheet", "ERROR", err)
+		os.Exit(1)
+	}
 
 	slog.Info(fmt.Sprintf("Fetched %d tickets for %v %v %v", len(ticketsFromSheet), currentYear, constants.FromTimeMonth(currentMonth), currentDay))
 
-	lastWrittenRow := sh.GetLastWrittenRowIndex(ticketsFromSheet)
-
-	newTicketsMap := getAllTicketsFromStores(gmailManager, ticketsFromSheet, firstOfMonth)
+	newTicketsMap := getAllTicketsFromStores(gmailManager, ticketsFromSheet, firstOfMonth, storesToFetch)
 
 	newTicketsList := CombineTickets(newTicketsMap)
+
 	slog.Info("New tickets collected", "TICKETS", newTicketsList)
 
-	uploadNewTickets(newTicketsList, sheetsManager, lastWrittenRow)
+	combinedEntries := MergeAllTickets(ticketsFromSheet, newTicketsList)
 
+	uploadNewTickets(combinedEntries, sheetsManager)
+
+}
+
+func parseCurrentTimeOverride(startDate *string) time.Time {
+	var currentTime time.Time
+
+	if *startDate != "01-01-0001" {
+		slog.Debug("Start date provided", "DATE", *startDate)
+		parsedDateOverride, err := time.Parse("02-01-2006", *startDate)
+		slog.Info(parsedDateOverride.String())
+		if err != nil {
+			slog.Info("Unable to parse date override, defaulting to today")
+			currentTime = time.Now()
+		} else {
+			currentTime = parsedDateOverride
+		}
+	} else {
+		currentTime = time.Now()
+	}
+	return currentTime
+}
+
+func parseStoreOverride(stores *string) []string {
+	if *stores == "" {
+		return constants.Stores
+	}
+
+	storeOverride := make([]string, 0)
+	parsedStores := strings.SplitSeq(strings.TrimSpace(*stores), ",")
+	for store := range parsedStores {
+		if slices.Contains(constants.Stores, store) {
+			storeOverride = append(storeOverride, store)
+		}
+	}
+	if len(storeOverride) > 0 {
+		return storeOverride
+	}
+	return constants.Stores
 }
 
 func getSheetName(currentYear int, currentMonth time.Month) string {
@@ -111,21 +145,19 @@ func getSheetName(currentYear int, currentMonth time.Month) string {
 	return sheetPageName
 }
 
-func uploadNewTickets(newTicketsList []internal.Ticket, sheetsManager sh.Manager, lastWrittenRow int) {
-	for _, ticketToUpload := range newTicketsList {
-		valueRange, err := ticketToUpload.ToValueRange()
+func uploadNewTickets(newEntryList []sh.Entry, sheetsManager sh.Manager) {
+	for _, entryToUpload := range newEntryList {
+		valueRange, err := entryToUpload.ToValueRange()
 		if err != nil {
 			slog.Info("Unable to create value range object, skipping", "ERROR", err)
 			return
 		}
-		updatedLines := sh.WriteToSheet(sheetsManager, valueRange, lastWrittenRow+1)
-		lastWrittenRow += updatedLines
+		_ = sh.WriteToSheet(sheetsManager, valueRange, entryToUpload.FirstRow+1)
 	}
 }
 
-func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firstOfMonth time.Time) map[string][]internal.Ticket {
+func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firstOfMonth time.Time, storesToFetch []string) map[string][]internal.Ticket {
 	allTickets := make(map[string][]internal.Ticket)
-	var wg sync.WaitGroup
 
 	excluded, errLoadExcluded := internal.LoadExcluded("config/excluded.json")
 	if errLoadExcluded != nil {
@@ -133,17 +165,41 @@ func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firs
 		return allTickets
 	}
 
-	for _, store := range []string{constants.MERCADONA, constants.DIA, constants.CARREFOUR} {
-		wg.Go(func() {
+	results := make(chan map[string][]internal.Ticket, len(storesToFetch))
+	var wg sync.WaitGroup
+
+	for _, store := range storesToFetch {
+		wg.Add(1)
+		go func(store string) {
+			defer wg.Done()
 			lastEntryFromSheets := sh.GetLastEntryForStore(sheetEntries, store)
 			lastEntryToCompare := getLastEntryToCompare(lastEntryFromSheets, store, firstOfMonth)
 
 			newFoundTickets := getTicketsForStore(gmManager, store, lastEntryToCompare, excluded)
-			allTickets[store] = newFoundTickets
-		})
+			results <- map[string][]internal.Ticket{store: newFoundTickets}
+		}(store)
 	}
-	wg.Wait()
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for res := range results {
+		maps.Copy(allTickets, res)
+	}
+
 	return allTickets
+}
+
+func getLastEntryToCompare(lastEntryFromSheets *sh.Entry, store string, firstOfMonth time.Time) sh.Entry {
+	if lastEntryFromSheets == nil {
+		slog.Info("No last ticket found for store, using first of month date", "STORE", store, "DATE", firstOfMonth)
+		return sh.Entry{Date: firstOfMonth, Total: 0}
+	}
+
+	slog.Info("Last ticket found for store, using entry date", "STORE", store, "DATE", lastEntryFromSheets.Date)
+	return *lastEntryFromSheets
 }
 
 func getTicketsForStore(gmManager gm.Manager, store string, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
@@ -160,16 +216,6 @@ func getTicketsForStore(gmManager gm.Manager, store string, lastEntryToCompare s
 	return newFoundTickets
 }
 
-func getLastEntryToCompare(lastEntryFromSheets *sh.Entry, store string, firstOfMonth time.Time) sh.Entry {
-	if lastEntryFromSheets == nil {
-		slog.Info("No last ticket found for store, using first of month date", "STORE", store, "DATE", firstOfMonth)
-		return sh.Entry{Date: firstOfMonth, Total: 0}
-	}
-
-	slog.Info("Last ticket found for store, using entry date", "STORE", store, "DATE", lastEntryFromSheets.Date)
-	return *lastEntryFromSheets
-}
-
 func getMercadonaTickets(manager gm.Manager, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
 	tickets := mercadona.GetTicketList(manager, lastEntryToCompare, excluded.MercadonaIds)
 	return tickets
@@ -179,7 +225,9 @@ func getDiaTickets(lastEntryToCompare sh.Entry, excluded internal.Excluded) []in
 	page, cleanup, err := dia.LoginToDia(CredsFilePath, CookiesPath)
 	if err != nil {
 		slog.Warn("Unable to fetch tickets from DIA", "ERROR", err)
-		cleanup()
+		if cleanup != nil {
+			cleanup()
+		}
 		return []internal.Ticket{}
 	}
 	newDiaTickets := dia.GetTicketList(page, lastEntryToCompare, excluded.DiaIDs)
@@ -201,13 +249,42 @@ func getCarrefourTickets(manager gm.Manager, lastEntryToCompare sh.Entry, exclud
 }
 
 func CombineTickets(allTickets map[string][]internal.Ticket) []internal.Ticket {
-	ticketList := allTickets[constants.MERCADONA]
-	ticketList = append(ticketList, allTickets[constants.DIA]...)
-	ticketList = append(ticketList, allTickets[constants.CARREFOUR]...)
+	ticketList := make([]internal.Ticket, 0)
+
+	fetchedStores := make([]string, 0, len(allTickets))
+	for k := range allTickets {
+		fetchedStores = append(fetchedStores, k)
+	}
+
+	for _, shop := range fetchedStores {
+		ticketList = append(ticketList, allTickets[shop]...)
+	}
 
 	sort.SliceStable(ticketList, func(i, j int) bool {
 		return ticketList[i].Date.Before(ticketList[j].Date)
 	})
 
 	return ticketList
+}
+
+func MergeAllTickets(sheetEntries []sh.Entry, newTickets []internal.Ticket) []sh.Entry {
+	allEntries := make([]sh.Entry, 0)
+	allEntries = append(allEntries, sheetEntries...)
+
+	for _, ticket := range newTickets {
+		allEntries = append(allEntries, ticket.ToEntry(0))
+	}
+
+	sort.SliceStable(allEntries, func(i, j int) bool {
+		return allEntries[i].Date.Before(allEntries[j].Date)
+	})
+
+	var firstRow = sh.HeaderSize
+	for i := range allEntries {
+		allEntries[i].FirstRow = firstRow
+		allEntries[i].LastRow = allEntries[i].FirstRow + len(allEntries[i].Items)
+		firstRow = allEntries[i].LastRow + 1
+	}
+
+	return allEntries
 }

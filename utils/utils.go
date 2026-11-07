@@ -30,7 +30,7 @@ func ToFixed(num float64, precision int) float64 {
 }
 
 func StringToFloat(str string, precision int) float64 {
-	parsed, err := strconv.ParseFloat(strings.TrimSpace(strings.Replace(str, ",", ".", -1)), 32)
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(strings.ReplaceAll(str, ",", ".")), 32)
 	if err != nil {
 		slog.Debug("Unable to parse float from input string: " + str)
 		return 0
@@ -43,16 +43,16 @@ func ParseQty(qty string) float64 {
 }
 
 func ParseQtyWithPrecision(qty string, precision int) float64 {
-	strippedQty := strings.Replace(strings.ToLower(qty), "ud.", "", -1)
-	strippedQty = strings.Replace(strings.ToLower(strippedQty), "ud", "", -1)
-	strippedQty = strings.Replace(strippedQty, "kg", "", -1)
+	strippedQty := strings.ReplaceAll(strings.ToLower(qty), "ud.", "")
+	strippedQty = strings.ReplaceAll(strings.ToLower(strippedQty), "ud", "")
+	strippedQty = strings.ReplaceAll(strippedQty, "kg", "")
 	return StringToFloat(strippedQty, precision)
 }
 
 func ParsePrice(price string) float64 {
-	strippedPrice := strings.Replace(price, "€", "", -1)
-	strippedPrice = strings.Replace(strippedPrice, "/kg", "", -1)
-	strippedPrice = strings.Replace(strippedPrice, ",", ".", -1)
+	strippedPrice := strings.ReplaceAll(price, "€", "")
+	strippedPrice = strings.ReplaceAll(strippedPrice, "/kg", "")
+	strippedPrice = strings.ReplaceAll(strippedPrice, ",", ".")
 	return StringToFloat(strippedPrice, 2)
 }
 

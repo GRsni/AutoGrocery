@@ -14,11 +14,14 @@ from pathlib import Path
 
 from invisible_playwright import InvisiblePlaywright
 
-
 SECRETS_FILE = Path(__file__).parent.parent / "config" / "credentials" / "secrets.json"
-COOKIES_FILE = Path(__file__).parent.parent / "config" / "credentials" / "cookies-www-dia-es.txt"
+COOKIES_FILE = (
+    Path(__file__).parent.parent / "config" / "credentials" / "cookies-www-dia-es.txt"
+)
 LOGIN_URL = "https://www.dia.es/login"
 PROJECT_ROOT = Path(__file__).parent.parent
+MAX_COOKIES_AGE = 25
+HEADLESS = True
 
 
 def load_password() -> str:
@@ -36,7 +39,7 @@ def parse_existing_cookies(filepath: Path) -> list[dict]:
     """Parse existing Netscape cookies file and return list of cookie dicts with expiry info."""
     if not filepath.exists():
         return []
-    
+
     cookies = []
     with open(filepath, "r") as f:
         for line in f:
@@ -47,43 +50,45 @@ def parse_existing_cookies(filepath: Path) -> list[dict]:
             parts = line.split("\t")
             if len(parts) >= 7:
                 try:
-                    cookies.append({
-                        "name": parts[5],
-                        "value": parts[6],
-                        "expiry": int(parts[4]),
-                    })
+                    cookies.append(
+                        {
+                            "name": parts[5],
+                            "value": parts[6],
+                            "expiry": float(parts[4]),
+                        }
+                    )
                 except (ValueError, IndexError):
                     continue
     return cookies
 
 
-def cookies_are_fresh(filepath: Path, max_age_minutes: int = 15) -> bool:
+def cookies_are_fresh(filepath: Path, max_age_minutes: int = MAX_COOKIES_AGE) -> bool:
     """Check if existing cookies are still fresh (not older than max_age_minutes)."""
     existing = parse_existing_cookies(filepath)
     if not existing:
         return False
-    
+
     now = int(time.time())
     # Check if ALL cookies are still valid and fresh
     for cookie in existing:
         expiry = cookie["expiry"]
-        
+
         # Session cookies (expiry=0) are always considered fresh
         # They don't have a time-based expiry
-        if expiry == 0:
+        if expiry == 0 or expiry == -1:
             continue
-        
-        age_seconds = now - expiry
+
+        age_seconds = expiry - now
         age_minutes = age_seconds / 60
-        
+
         # Cookie is expired
         if expiry < now:
             return False
-        
+
         # Cookie is older than max_age_minutes
         if age_minutes >= max_age_minutes:
             return False
-    
+
     return True
 
 
@@ -101,10 +106,9 @@ def export_netscape_cookies(cookies: list[dict], filepath: Path) -> None:
                 domain = f".{domain}"
 
             # Convert expiry (seconds or milliseconds) to Unix timestamp
-            expiry = cookie.get("expirationDate", 0)
+            expiry = cookie.get("expires", 0)
             if expiry > 1e12:  # milliseconds
                 expiry = expiry / 1000
-            expiry = int(expiry)
 
             # Map Playwright field names to Netscape format
             secure = "TRUE" if cookie.get("secure", False) else "FALSE"
@@ -113,7 +117,9 @@ def export_netscape_cookies(cookies: list[dict], filepath: Path) -> None:
             name = cookie["name"]
             value = cookie["value"]
 
-            f.write(f"{domain}\t{secure}\t{path}\t{http_only}\t{expiry}\t{name}\t{value}\n")
+            f.write(
+                f"{domain}\t{secure}\t{path}\t{http_only}\t{expiry}\t{name}\t{value}\n"
+            )
 
     print(f"Cookies saved to: {filepath}")
 
@@ -129,14 +135,16 @@ def run_go_service(project_root: Path) -> None:
         cmd = [str(binary_path)]
     else:
         # Check if autogrocery binary is in PATH (Docker)
-        result = subprocess.run(["which", "autogrocery"], capture_output=True, text=True)
+        result = subprocess.run(
+            ["which", "autogrocery"], capture_output=True, text=True
+        )
         if result.returncode == 0:
             cmd = ["autogrocery"]
         else:
             # Fall back to go run for local development
             main_go = project_root / "cmd" / "autogrocery" / "main.go"
             cmd = ["go", "run", str(main_go)]
-    
+
     result = subprocess.run(
         cmd,
         cwd=str(project_root),
@@ -150,21 +158,23 @@ def run_go_service(project_root: Path) -> None:
 
 def main():
     password = load_password()
-    
+
     # Check if existing cookies are still fresh
-    if cookies_are_fresh(COOKIES_FILE, max_age_minutes=15):
-        print("Cookies are fresh (less than 15 minutes old). Skipping browser login.")
+    if cookies_are_fresh(COOKIES_FILE, max_age_minutes=MAX_COOKIES_AGE):
+        print(
+            f"Cookies are fresh (less than  minutes ${MAX_COOKIES_AGE} old). Skipping browser login."
+        )
         print("Running Go service directly...")
         run_go_service(PROJECT_ROOT)
         return
-    
+
     print("Cookies are stale or missing. Refreshing...")
     print("Opening dia.es/login with invisible_playwright...")
 
     # Pass --no-sandbox for Docker/headless environments
     extra_args = ["--no-sandbox"]
 
-    with InvisiblePlaywright(extra_args=extra_args) as browser:
+    with InvisiblePlaywright(extra_args=extra_args, headless=HEADLESS) as browser:
         context = browser.new_context(
             locale="es-ES",
             timezone_id="Europe/Madrid",
@@ -221,12 +231,16 @@ def main():
                     print("Password filled. Waiting for page to stabilize...")
                     page.wait_for_load_state("networkidle")
                     time.sleep(1)
-                    
+
                     # Click the login button (same selector as Continue button)
                     print("Looking for login button...")
-                    login_button_selector = "[data-test-id='email_continue_button_enabled']"
+                    login_button_selector = (
+                        "[data-test-id='email_continue_button_enabled']"
+                    )
                     try:
-                        login_btn = page.wait_for_selector(login_button_selector, timeout=10000, state="visible")
+                        login_btn = page.wait_for_selector(
+                            login_button_selector, timeout=10000, state="visible"
+                        )
                         if login_btn:
                             print("  Found login button. Clicking...")
                             login_btn.click(force=True)
@@ -248,7 +262,9 @@ def main():
                 try:
                     # Wait for Continue button to appear and be visible
                     print(f"  Waiting for button with selector: {button_selector}")
-                    btn = page.wait_for_selector(button_selector, timeout=10000, state="visible")
+                    btn = page.wait_for_selector(
+                        button_selector, timeout=10000, state="visible"
+                    )
                     if btn:
                         print("  Found Continue button. Clicking...")
                         # Use force=True to bypass visibility checks and click directly
@@ -257,25 +273,37 @@ def main():
                         time.sleep(2)
                         # Wait for password field to appear with generous timeout
                         try:
-                            password_input = page.wait_for_selector(password_selector, timeout=15000)
+                            password_input = page.wait_for_selector(
+                                password_selector, timeout=15000
+                            )
                             if password_input:
                                 print("Password field found. Filling password...")
                                 for char in password:
                                     password_input.type(char, delay=50)
                                 time.sleep(1)
-                                print("Password filled. Waiting for page to stabilize...")
+                                print(
+                                    "Password filled. Waiting for page to stabilize..."
+                                )
                                 page.wait_for_load_state("networkidle")
                                 time.sleep(1)
-                                
+
                                 # Click the login button (same selector as Continue button)
                                 print("Looking for login button...")
-                                login_button_selector = "[data-test-id='email_continue_button_enabled']"
+                                login_button_selector = (
+                                    "[data-test-id='email_continue_button_enabled']"
+                                )
                                 try:
-                                    login_btn = page.wait_for_selector(login_button_selector, timeout=10000, state="visible")
+                                    login_btn = page.wait_for_selector(
+                                        login_button_selector,
+                                        timeout=10000,
+                                        state="visible",
+                                    )
                                     if login_btn:
                                         print("  Found login button. Clicking...")
                                         login_btn.click(force=True)
-                                        print("Clicked login button. Waiting for page to load...")
+                                        print(
+                                            "Clicked login button. Waiting for page to load..."
+                                        )
                                         time.sleep(2)
                                     else:
                                         print("Login button not found.")
@@ -301,7 +329,9 @@ def main():
 
             # If still on login page, prompt for manual completion
             if "login" in page.url.lower():
-                print("Warning: Still on login page. You may need to complete manual steps (captcha, 2FA, etc.).")
+                print(
+                    "Warning: Still on login page. You may need to complete manual steps (captcha, 2FA, etc.)."
+                )
                 print("Waiting for you to complete them... (press Ctrl+C to cancel)")
                 print("Press Enter when login is complete...")
                 input()
@@ -323,7 +353,9 @@ def main():
             print(f"Found {len(cookies)} cookies")
 
             if not cookies:
-                print("Warning: No cookies found. Login may have failed.", file=sys.stderr)
+                print(
+                    "Warning: No cookies found. Login may have failed.", file=sys.stderr
+                )
                 sys.exit(1)
 
             # Export cookies

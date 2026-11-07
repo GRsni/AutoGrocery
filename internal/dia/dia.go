@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -136,19 +137,35 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 
 	userDataDir := os.Getenv("CHROME_USER_DATA_DIR")
 	if userDataDir == "" {
-		userDataDir = "/home/user/.config/google-chrome" // Linux default
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			homeDir = os.TempDir()
+		}
+		// Dedicated profile for automation, NOT Chrome's default dir
+		userDataDir = filepath.Join(homeDir, ".config", "autogrocery", "chrome-profile")
+	}
+
+	if err := os.MkdirAll(userDataDir, 0o755); err != nil {
+		return nil, nil, fmt.Errorf("create user data dir %q: %w", userDataDir, err)
 	}
 
 	// Use system chromium if available, otherwise let Rod download its own
 	browserPath := os.Getenv("CHROME_PATH")
 	if browserPath == "" {
-		browserPath = "/usr/bin/chromium" // Debian/Ubuntu default path
+		if found, _ := launcher.LookPath(); found != "" {
+			browserPath = found
+		}
 	}
 
 	l := launcher.New().
 		Headless(constants.HeadlessMode).
-		UserDataDir(userDataDir).
-		Bin(browserPath).
+		UserDataDir(userDataDir)
+
+	if browserPath != "" {
+		l = l.Bin(browserPath)
+	}
+
+	l = l.
 		Set("disable-blink-features", "AutomationControlled").
 		Set("disable-dev-shm-usage").
 		Set("no-sandbox")
@@ -344,15 +361,7 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 		return nil
 	}
 
-	// Close ticket
-	ticketClose, err := page.Element("[data-test-id='ticket-detail-modal-cross']")
-	if err != nil {
-		slog.Debug("Cannot find ticket button, skipping", "STORE", constants.DIA)
-		return nil
-	}
-	ticketClose.Hover()
-	humanDelay()
-	ticketClose.MustClick()
+	closeTicketModal(page)
 
 	humanDelay()
 
@@ -489,6 +498,32 @@ func getDiscount(element *rod.Element) float64 {
 
 func isTotalCorrect(qty float64, pricePer float64, totalFound float64) bool {
 	return utils.FloatsEqual(utils.ToFixed(qty*pricePer, 2), totalFound)
+}
+
+func closeTicketModal(page *rod.Page) {
+	const sel = "[data-test-id='ticket-detail-modal-cross']"
+
+	el, err := page.Timeout(5 * time.Second).Element(sel)
+	if err != nil {
+		slog.Warn("close button not found", "ERROR", err)
+		return
+	}
+
+	// Timeout turns the infinite WaitInteractable loop into an error
+	if err := el.Timeout(2*time.Second).Click(proto.InputMouseButtonLeft, 1); err != nil {
+		slog.Debug("native click failed, using JS click", "ERROR", err)
+		if _, err := el.Eval(`() => this.click()`); err != nil {
+			slog.Warn("JS click failed", "ERROR", err)
+		}
+	}
+
+	for range 50 {
+		if has, _, _ := page.Has(sel); !has {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	slog.Warn("ticket modal did not close")
 }
 
 func removeCancelledItems(items []internal.Item) []internal.Item {
