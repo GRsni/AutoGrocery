@@ -1,0 +1,14 @@
+.git
+.gitignore
+!config/
+!config/credentials/
+!config/excluded.json
+*.md
+!Dockerfile
+!docker-compose.yml
+!docker-compose.dev.yml
+bin/
+*.txt
+!config/credentials/cookies-www-dia-es.txt
+!config/credentials/secrets.json
+!config/credentials/token.json

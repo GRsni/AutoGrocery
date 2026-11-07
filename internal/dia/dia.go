@@ -139,17 +139,21 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		userDataDir = "/home/user/.config/google-chrome" // Linux default
 	}
 
+	// Use system chromium if available, otherwise let Rod download its own
+	browserPath := os.Getenv("CHROME_PATH")
+	if browserPath == "" {
+		browserPath = "/usr/bin/chromium" // Debian/Ubuntu default path
+	}
+
 	l := launcher.New().
 		Headless(constants.HeadlessMode).
 		UserDataDir(userDataDir).
+		Bin(browserPath).
 		Set("disable-blink-features", "AutomationControlled").
 		Set("disable-dev-shm-usage").
 		Set("no-sandbox")
 
-	launcher.NewBrowser().MustGet()
-
 	u := l.MustLaunch()
-
 	// Rod sets navigator.languages to [d.AcceptLanguage] for pages.
 	d := devices.LaptopWithMDPIScreen.Landscape() // the default device
 	d.AcceptLanguage = "es-ES"                    // set to your locale

@@ -1,0 +1,15 @@
+services:
+  autogrocery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autogrocery:debug
+    environment:
+      - DISPLAY=${DISPLAY}
+      - MOZ_ENABLE_WAYLAND=0
+    volumes:
+      - ./config/credentials:/app/config/credentials
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    # Allow container to access host X server
+    # Run with: xhost +local:docker
+    # Then: docker compose -f docker-compose.debug.yml run --rm autogrocery

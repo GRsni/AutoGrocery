@@ -1,0 +1,23 @@
+services:
+  autogrocery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: autogrocery:dev
+    volumes:
+      # Mount source for live development
+      - ./scripts:/app/scripts
+      - ./config:/app/config
+      - ./cmd:/app/cmd
+      - ./internal:/app/internal
+      - ./pkg:/app/pkg
+      - ./utils:/app/utils
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+    environment:
+      - HEADLESS=1
+    # Interactive mode for debugging
+    stdin_open: true
+    tty: true

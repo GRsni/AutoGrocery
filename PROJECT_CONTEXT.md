@@ -26,6 +26,8 @@ internal/token/manager.go         ← OAuth2 token lifecycle (web flow, refresh,
 pkg/constants/                     ← Shared constants (store names, month names, date format)
 utils/utils.go                     ← Float parsing, price/qty extraction, date helpers
 config/                            ← Credentials, cookies, excluded IDs (gitignored)
+scripts/
+  export-dia-cookies.py           ← Playwright script to refresh Dia.es cookies, then runs Go service
 ```
 
 ### Data Flow
@@ -158,6 +160,29 @@ Sheet page naming: `<MonthName><YY>` e.g., `Noviembre26`
 | `ParsePrice(price)` | Strip "€" / "/kg" → float |
 | `ExtractString(val any)` | Safely extract string from `any` (handles float64 from Sheets) |
 | `StringToDate(input)` | Parse date with fallback formats |
+
+---
+
+## Cookie Refresh Workflow
+
+### `scripts/export-dia-cookies.py`
+
+A Python script using `invisible_playwright` to refresh Dia.es session cookies and automatically run the Go service.
+
+**Workflow:**
+1. **Login** to `dia.es/login` using credentials from `config/credentials/secrets.json`
+2. **Handle multi-step login** (email → password → Continue button clicks with human-like typing delays)
+3. **Manual intervention** — if still on login page, prompts user to complete CAPTCHA/2FA
+4. **Navigate to `/my-account`** to ensure full login
+5. **Export cookies** in Netscape format to `config/credentials/cookies-www-dia-es.txt`
+6. **Run Go service** — automatically executes `go run cmd/autogrocery/main.go` from project root
+
+**Usage:**
+```bash
+python scripts/export-dia-cookies.py
+```
+
+The script will handle the entire flow: refresh cookies → export them → run the Go ticket exporter.
 
 ---
 

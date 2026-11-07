@@ -56,8 +56,16 @@ func LoadCredentials(filePath string) (*Credentials, error) {
 
 func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), error) {
 	// Launch browser (headless by default)
-	l := launcher.New().Headless(constants.HeadlessMode)
-	l.Set("disable-blink-features", "AutomationControlled")
+	// Use system chromium if available, otherwise let Rod download its own
+	browserPath := os.Getenv("CHROME_PATH")
+	if browserPath == "" {
+		browserPath = "/usr/bin/chromium" // Debian/Ubuntu default path
+	}
+
+	l := launcher.New().
+		Headless(constants.HeadlessMode).
+		Bin(browserPath).
+		Set("disable-blink-features", "AutomationControlled")
 	u := l.MustLaunch()
 
 	// Rod sets navigator.languages to [d.AcceptLanguage] for pages.

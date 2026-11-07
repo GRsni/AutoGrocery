@@ -1,0 +1,66 @@
+# Build stage for Go binary
+FROM golang:1.26-bookworm AS go-builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN go build -ldflags "-X main.Version=$(git describe --tags --always --dirty)-$(date +%Y-%m-%dT%H:%M:%SZ)" -o /usr/local/bin/autogrocery ./cmd/autogrocery/
+
+# Final stage: Python + Playwright + Go binary (Debian-based for Raspberry Pi OS compatibility)
+FROM python:3.12-slim-bookworm
+
+# Install Node.js (for npx) and Firefox's system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get install -y --no-install-recommends \
+    xvfb \
+    chromium \
+    chromium-driver \
+    libgtk-3-0 \
+    libdbus-1-3 \
+    libnss3 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libatspi2.0-0 \
+    libxshmfence1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set virtual display and Firefox sandbox settings for headless Docker
+ENV DISPLAY=:99
+ENV MOZ_ENABLE_WAYLAND=0
+ENV MOZ_DISABLE_RDD_SANDBOX=1
+
+# Pre-download Rod Chromium to avoid re-downloading on each run
+# Set ROD_CACHE_DIR to persist the browser cache across container runs
+ENV ROD_CACHE_DIR=/root/.cache/rod
+RUN mkdir -p /root/.cache/rod/browser && \
+    cd /root/.cache/rod/browser && \
+    chromium --version 2>/dev/null || true
+
+# Install Python dependencies
+RUN pip install --no-cache-dir invisible-playwright
+
+# Copy Go binary from builder
+COPY --from=go-builder /usr/local/bin/autogrocery /usr/local/bin/autogrocery
+
+# Set working directory
+WORKDIR /app
+
+# Copy scripts and config
+COPY scripts/ /app/scripts/
+COPY config/ /app/config/
+
+# Environment variables
+ENV HEADLESS=1
+ENV CHROME_PATH=/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome
+
+# Default command: start Xvfb then run the cookie refresh script
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x720x24 &>/dev/null & sleep 1 && python /app/scripts/export-dia-cookies.py"]

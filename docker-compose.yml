@@ -1,0 +1,14 @@
+services:
+  autogrocery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autogrocery:latest
+    volumes:
+      # Persist cookies and tokens across runs
+      - ./config/credentials:/app/config/credentials
+    environment:
+      - HEADLESS=1
+    # Run once and exit (cookie refresh + ticket export)
+    # Use `docker compose run --rm autogrocery` for one-off runs
+    # Or set up a cron/schedule to run this periodically
