@@ -89,6 +89,11 @@ func main() {
 
 	newTicketsList := CombineTickets(newTicketsMap)
 
+	if len(newTicketsList) == 0 {
+		slog.Info("No new tickets were loaded from stores, exiting early")
+		return
+	}
+
 	slog.Info("New tickets collected", "TICKETS", newTicketsList)
 
 	combinedEntries := MergeAllTickets(ticketsFromSheet, newTicketsList)

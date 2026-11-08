@@ -142,6 +142,7 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 	loginModal.MustElement(`input.submit-ok[type="submit"]`).MustClick()
 	loginModal.MustWaitLoad().MustWaitIdle()
 	humanDelay()
+	slog.Debug("Entered user details, waiting for 2FA email", "STORE", "CARREFOUR")
 
 	handle2FA(manager, page, err)
 
@@ -156,6 +157,7 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 	page.MustElementR("a", "Ver todas").MustClick()
 	page.MustWaitStable().MustWaitIdle()
 	time.Sleep(5 * time.Second)
+	slog.Info("Logged into Carrefour, loading tickets now", "STORE", "CARREFOUR")
 
 	return page, cleanup, nil
 }
@@ -171,6 +173,7 @@ func handle2FA(manager gm.Manager, page *rod.Page, err error) {
 	if err2FA != nil {
 		slog.Error("Error while fetching 2FA code", "ERROR", err2FA)
 	}
+	slog.Debug("Received 2FA message, inputing code", "STORE", "CARREFOUR")
 
 	page.Mouse.MustMoveTo(850, 450).MustClick("left")
 	keys := make([]input.Key, 0, len(code))

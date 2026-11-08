@@ -38,12 +38,8 @@ ENV DISPLAY=:99
 ENV MOZ_ENABLE_WAYLAND=0
 ENV MOZ_DISABLE_RDD_SANDBOX=1
 
-# Pre-download Rod Chromium to avoid re-downloading on each run
-# Set ROD_CACHE_DIR to persist the browser cache across container runs
+# Set Rod cache dir (unused when CHROME_PATH points to system Chromium)
 ENV ROD_CACHE_DIR=/root/.cache/rod
-RUN mkdir -p /root/.cache/rod/browser && \
-    cd /root/.cache/rod/browser && \
-    chromium --version 2>/dev/null || true
 
 # Install Python dependencies
 RUN pip install --no-cache-dir invisible-playwright
@@ -60,7 +56,7 @@ COPY config/ /app/config/
 
 # Environment variables
 ENV HEADLESS=1
-ENV CHROME_PATH=/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome
+ENV CHROME_PATH=/usr/bin/chromium
 
 # Default command: start Xvfb then run the cookie refresh script
-CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x720x24 &>/dev/null & sleep 1 && python /app/scripts/export-dia-cookies.py"]
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x720x24 &>/dev/null & sleep 1 && python /app/scripts/full-flow.py"]
