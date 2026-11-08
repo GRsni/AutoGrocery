@@ -196,9 +196,7 @@ func TestGetLastEntryForStore(t *testing.T) {
 					t.Errorf("Store = %q, want %q", got.Store, tt.wantStore)
 				}
 				if got.FirstRow != tt.wantRow {
-					if got != nil {
-						t.Errorf("FirstRow = %d, want %d", got.FirstRow, tt.wantRow)
-					}
+					t.Errorf("FirstRow = %d, want %d", got.FirstRow, tt.wantRow)
 				}
 			}
 		})

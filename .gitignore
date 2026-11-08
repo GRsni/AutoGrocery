@@ -92,3 +92,5 @@ data/
 htmlcov/
 
 /.claude/worktrees/
+autogrocery-latest.tar
+PROJECT_CONTEXT.md

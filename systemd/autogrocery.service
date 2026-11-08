@@ -1,0 +1,16 @@
+[Unit]
+Description=autoGrocery ticket scraper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run \
+    --rm \
+    --name autogrocery-%i \
+    -v /home/<user>/autogrocery/config:/app/config:ro \
+    autogrocery:latest
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

@@ -41,8 +41,9 @@ ENV MOZ_DISABLE_RDD_SANDBOX=1
 # Set Rod cache dir (unused when CHROME_PATH points to system Chromium)
 ENV ROD_CACHE_DIR=/root/.cache/rod
 
-# Install Python dependencies
-RUN pip install --no-cache-dir invisible-playwright
+# Install Python dependencies and Playwright browser binaries
+RUN pip install --no-cache-dir playwright invisible-playwright && \
+    python -m playwright install --with-deps chromium firefox
 
 # Copy Go binary from builder
 COPY --from=go-builder /usr/local/bin/autogrocery /usr/local/bin/autogrocery
