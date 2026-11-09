@@ -95,3 +95,5 @@ htmlcov/
 autogrocery-latest.tar
 PROJECT_CONTEXT.md
 .deploy-cache
+autogrocery
+autogroceru-*.jar

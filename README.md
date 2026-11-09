@@ -34,10 +34,11 @@ internal/token/manager.go         ← OAuth2 token lifecycle (web flow, refresh,
 pkg/constants/                     ← Shared constants (store names, month names, date format)
 utils/utils.go                     ← Float parsing, price/qty extraction, date helpers
 config/                            ← Credentials, cookies, excluded IDs (gitignored)
+docker/                            ← Dockerfile, compose files (.dockerignore)
 scripts/
   full-flow.py                     ← Playwright cookie refresh + Go service runner
 systemd/                           ← autoGrocery.service + .timer for systemd scheduling
-deploy.sh                          ← Cross-compile Docker image, transfer to Pi, load via systemd
+deploy/deploy.sh                   ← Cross-compile Docker image, transfer to Pi, load via systemd
 ```
 
 ### Data Flow
@@ -140,7 +141,7 @@ python scripts/full-flow.py
 docker compose run --rm autogrocery
 
 # Or with debug config
-docker compose -f docker-compose.debug.yml up
+docker compose -f docker/docker-compose.debug.yml up
 ```
 
 The Docker image is a multi-stage build:
@@ -168,11 +169,11 @@ The Docker container mounts credentials as read-only volumes from a persistent c
 Builds a cross-compiled ARM64 Docker image, transfers it to the Raspberry Pi, loads it, and sets up systemd.
 
 ```bash
-# Usage: ./deploy.sh <user@host> [tag] [remote-dest] [--force]
-./deploy.sh user@192.168.1.x                          # Normal deploy (defaults to ~/autogrocery/ on remote)
-./deploy.sh user@192.168.1.x autogrocery:v1.2         # Custom tag
-./deploy.sh user@192.168.1.x --force                  # Force rebuild even if source unchanged
-./deploy.sh user@192.168.1.x autogrocery:latest /mnt/data  # Custom remote path
+# Usage: ./deploy/deploy.sh <user@host> [tag] [remote-dest] [--force]
+./deploy/deploy.sh user@192.168.1.x                          # Normal deploy (defaults to ~/autogrocery/ on remote)
+./deploy/deploy.sh user@192.168.1.x autogrocery:v1.2         # Custom tag
+./deploy/deploy.sh user@192.168.1.x --force                  # Force rebuild even if source unchanged
+./deploy/deploy.sh user@192.168.1.x autogrocery:latest /mnt/data  # Custom remote path
 ```
 
 To check logs of previous runs, SSH into PI, then run:

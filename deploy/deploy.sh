@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Build, transfer, and load Docker image on Raspberry Pi
-# Usage: ./deploy.sh <user@host> [tag] [remote-dest] [--force]
-# Example: ./deploy.sh user@192.168.1.x autogrocery:latest
-#          ./deploy.sh user@192.168.1.x autogrocery:v1.2 /mnt/data
-#          ./deploy.sh user@192.168.1.x --force       (rebuild even if source unchanged)
+# Usage: ./deploy/deploy.sh <user@host> [tag] [remote-dest] [--force]
+# Example: ./deploy/deploy.sh user@192.168.1.x autogrocery:latest
+#          ./deploy/deploy.sh user@192.168.1.x autogrocery:v1.2 /mnt/data
+#          ./deploy/deploy.sh user@192.168.1.x --force       (rebuild even if source unchanged)
 
 set -euo pipefail
 
@@ -43,8 +43,8 @@ compute_source_hash() {
     # Hash every file that affects the built image (Dockerfile + sources)
     # Exclude deploy.sh itself — not part of the image, only orchestrates builds
     git -C "$PROJECT_ROOT" ls-files \
-        Dockerfile go.mod go.sum cmd/ scripts/ config/ internal/ pkg/ \
-        -- ':!scripts/deploy.sh' \
+        docker/Dockerfile go.mod go.sum cmd/ scripts/ config/ internal/ pkg/ \
+        -- ':!deploy/deploy.sh' \
         2>/dev/null | sort | xargs sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1
 }
 
@@ -82,7 +82,7 @@ docker buildx build \
     --platform linux/arm64 \
     --tag "$TAG" \
     --load \
-    -f Dockerfile \
+    -f docker/Dockerfile \
     .
 
 echo "=== Exporting image to tar ==="
@@ -102,7 +102,7 @@ if [ "$REMOTE_FREE_KB" -lt "$REQUIRED_KB" ]; then
     echo "  Available: $(( REMOTE_FREE_KB / 1024 )) MB"
     echo "  Required:  $(( REQUIRED_KB / 1024 )) MB"
     echo "  Try a path on a larger filesystem, e.g.:"
-    echo "    ./deploy.sh $HOST autogrocery:latest /mnt/data"
+    echo "    ./deploy/deploy.sh $HOST autogrocery:latest /mnt/data"
     exit 1
 fi
 

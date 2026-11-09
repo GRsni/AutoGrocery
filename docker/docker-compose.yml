@@ -2,7 +2,7 @@ services:
   autogrocery:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: ./Dockerfile
     image: autogrocery:latest
     volumes:
       # Persist cookies and tokens across runs

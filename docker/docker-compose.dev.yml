@@ -2,7 +2,7 @@ services:
   autogrocery:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: ./Dockerfile
       args:
         - BUILDKIT_INLINE_CACHE=1
     image: autogrocery:dev
