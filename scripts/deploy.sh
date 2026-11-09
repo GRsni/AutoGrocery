@@ -7,10 +7,24 @@
 
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# Parse flags first (before positional args), strip them from $@
+# ---------------------------------------------------------------------------
+FORCE_BUILD=0
+CLEAN_ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--force" ]; then
+        FORCE_BUILD=1
+    else
+        CLEAN_ARGS+=("$arg")
+    fi
+done
+set -- "${CLEAN_ARGS[@]}"
+
 HOST="${1:?Usage: $0 <user@host> [tag] [remote-dest]}"
 TAG="${2:-autogrocery:latest}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$SCRIPT_DIR"
+PROJECT_ROOT="${SCRIPT_DIR%/scripts}"
 TAR_FILE="autogrocery-latest.tar"
 CACHE_FILE="$PROJECT_ROOT/.deploy-cache"
 
@@ -27,18 +41,12 @@ DEST_PATH="${3:-/home/${REMOTE_USER}/autogrocery}"
 # ---------------------------------------------------------------------------
 compute_source_hash() {
     # Hash every file that affects the built image (Dockerfile + sources)
+    # Exclude deploy.sh itself — not part of the image, only orchestrates builds
     git -C "$PROJECT_ROOT" ls-files \
         Dockerfile go.mod go.sum cmd/ scripts/ config/ internal/ pkg/ \
+        -- ':!scripts/deploy.sh' \
         2>/dev/null | sort | xargs sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1
 }
-
-# Parse --force flag (remove it from args so downstream code isn't confused)
-FORCE_BUILD=0
-for arg in "$@"; do
-    if [ "$arg" = "--force" ]; then
-        FORCE_BUILD=1
-    fi
-done
 
 LAST_HASH=""
 if [ -f "$CACHE_FILE" ]; then
@@ -127,7 +135,12 @@ fi
 # Load on remote (clean up tar immediately)
 # ---------------------------------------------------------------------------
 echo "=== Loading image on remote ==="
-ssh "$HOST" "docker load -i $DEST_PATH/$TAR_FILE && rm -f $DEST_PATH/$TAR_FILE"
+echo "  (this may take a minute — progress streamed from docker)"
+ssh -t "$HOST" "docker load -i $DEST_PATH/$TAR_FILE && rm -f $DEST_PATH/$TAR_FILE" || {
+    echo "ERROR: docker load failed on remote." >&2
+    exit 1
+}
+echo "  Image loaded and tar cleaned up."
 
 echo "=== Verifying on remote ==="
 ssh "$HOST" "docker images | grep '$(echo $TAG | cut -d: -f1)'"
@@ -155,7 +168,7 @@ Type=oneshot
 ExecStart=/usr/bin/docker run \
     --rm \
     --name autogrocery-%i \
-    -v ${CONFIG_DIR}:/app/config:ro \
+    -v ${CONFIG_DIR}:/app/config \
     autogrocery:latest
 TimeoutStartSec=1800
 

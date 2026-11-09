@@ -42,7 +42,8 @@ ENV MOZ_DISABLE_RDD_SANDBOX=1
 ENV ROD_CACHE_DIR=/root/.cache/rod
 
 # Install Python dependencies and Playwright browser binaries
-RUN pip install --no-cache-dir playwright invisible-playwright && \
+# invisible-core>=56 dropped ARM64 support; pin <56 for Raspberry Pi (ARM64)
+RUN pip install --no-cache-dir playwright "invisible-playwright" "invisible-core<56" && \
     python -m playwright install --with-deps chromium firefox
 
 # Copy Go binary from builder

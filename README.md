@@ -175,6 +175,12 @@ Builds a cross-compiled ARM64 Docker image, transfers it to the Raspberry Pi, lo
 ./deploy.sh user@192.168.1.x autogrocery:latest /mnt/data  # Custom remote path
 ```
 
+To check logs of previous runs, SSH into PI, then run:
+
+```bash
+journalctl --unit=autogrocery.service -n 200
+```
+
 ### Features
 
 - **Source caching**: Hashes all tracked files (`git ls-files`) and compares to `.deploy-cache`. Skips the build if nothing changed.
