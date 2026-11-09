@@ -302,7 +302,8 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 		text, _ := ticketElement.Text()
 		ticketDate, ticketTotal, errTicketDetails := getDateAndTotal(text)
 		if errTicketDetails != nil {
-			return nil
+			slog.Debug("Skipping malformed ticket card", "ERROR", errTicketDetails)
+			continue // skip this card, don't abort the whole run
 		}
 		ticketDateComparison := lastEntryToCompare.Date.Compare(ticketDate)
 		if ticketDateComparison > 0 {

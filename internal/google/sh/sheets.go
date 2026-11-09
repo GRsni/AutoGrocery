@@ -53,10 +53,11 @@ func (entry Entry) ToValueRange() (*sheets.ValueRange, error) {
 	var values [][]any
 
 	for _, item := range entry.Items {
-		if item.Name[0] == '+' {
-			item.Name = "'" + item.Name
+		name := item.Name // copy to avoid mutating the original
+		if len(name) > 0 && name[0] == '+' {
+			name = "'" + name
 		}
-		row := []any{"", "", item.Name, item.Amount, item.Price}
+		row := []any{"", "", name, item.Amount, item.Price}
 		values = append(values, row)
 	}
 	if len(values) == 0 {

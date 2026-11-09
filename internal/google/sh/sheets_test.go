@@ -1329,3 +1329,115 @@ func TestGetSheetTicketList_Items(t *testing.T) {
 		t.Errorf("Item[1].Price = %f, want %f", got[0].Items[1].Price, 2.50)
 	}
 }
+
+// --- Tests for BUG-1 fix: empty item name does not panic in Entry.ToValueRange ---
+
+func TestEntryToValueRange_EmptyItemName_NoPanic(t *testing.T) {
+	// BUG-1 regression test: item.Name[0] would panic on empty string
+	entry := Entry{
+		Store: "MERCADONA",
+		Id:    "M001",
+		Date:  time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC),
+		Items: Items{{Name: "", Amount: 1, Price: 5.00}},
+	}
+
+	vr, err := entry.ToValueRange()
+	if err != nil {
+		t.Fatalf("unexpected error for empty item name: %v", err)
+	}
+	if vr == nil {
+		t.Fatal("expected non-nil ValueRange, got nil")
+	}
+	if len(vr.Values) != 1 {
+		t.Fatalf("got %d rows, want 1", len(vr.Values))
+	}
+	// Empty name should be preserved as empty string (not panic)
+	if vr.Values[0][2] != "" {
+		t.Errorf("row[0][2] = %q, want empty string", vr.Values[0][2])
+	}
+}
+
+func TestEntryToValueRange_MixedEmptyAndPlusNames(t *testing.T) {
+	entry := Entry{
+		Store: "DIA",
+		Id:    "D001",
+		Date:  time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		Items: Items{
+			{Name: "", Amount: 1, Price: 2.00},   // empty name
+			{Name: "+Bonus", Amount: 1, Price: 3.00}, // plus prefix
+			{Name: "Normal", Amount: 1, Price: 5.00}, // normal name
+		},
+	}
+
+	vr, err := entry.ToValueRange()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vr.Values) != 3 {
+		t.Fatalf("got %d rows, want 3", len(vr.Values))
+	}
+	// First row: empty name preserved as-is (no + prefix to escape)
+	if vr.Values[0][2] != "" {
+		t.Errorf("row[0][2] = %q, want empty string", vr.Values[0][2])
+	}
+	// Second row: plus prefix escaped with single quote
+	if vr.Values[1][2] != "'+Bonus" {
+		t.Errorf("row[1][2] = %q, want '+Bonus", vr.Values[1][2])
+	}
+	// Third row: normal name unchanged
+	if vr.Values[2][2] != "Normal" {
+		t.Errorf("row[2][2] = %q, want Normal", vr.Values[2][2])
+	}
+}
+
+func TestEntryToValueRange_OriginalItemsNotMutated(t *testing.T) {
+	// BUG-1 regression: the fix copies item.Name to a local var so the original
+	// Entry Items slice is not mutated.
+	entry := Entry{
+		Store: "MERCADONA",
+		Id:    "",
+		Date:  time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC),
+		Items: Items{{Name: "+Escaped", Amount: 1, Price: 1.00}},
+	}
+
+	originalName := entry.Items[0].Name
+	_, err := entry.ToValueRange()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if entry.Items[0].Name != originalName {
+		t.Errorf("original item name mutated from %q to %q", originalName, entry.Items[0].Name)
+	}
+}
+
+func TestEntryToValueRange_PlusPrefixVariants(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"plus at start", "+Sale", "'+Sale"},
+		{"plus in middle", "A+B", "A+B"},
+		{"plus at end", "Item+", "Item+"},
+		{"just plus sign", "+", "'+"},
+		{"plus with space", "+ Bonus", "'+ Bonus"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entry := Entry{
+				Store: "MERCADONA",
+				Id:    "",
+				Date:  time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				Items: Items{{Name: tt.input, Amount: 1, Price: 5.00}},
+			}
+			vr, err := entry.ToValueRange()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if vr.Values[0][2] != tt.expected {
+				t.Errorf("row[0][2] = %q, want %q", vr.Values[0][2], tt.expected)
+			}
+		})
+	}
+}

@@ -523,3 +523,177 @@ func TestTicketToEntry_NonZeroStartRow(t *testing.T) {
 		t.Errorf("Entry LastRow = %d, want 21", entry.LastRow)
 	}
 }
+
+// --- Tests for BUG-1 fix: empty ticket name does not panic ---
+
+func TestToValueRange_EmptyItemName_NoPanic(t *testing.T) {
+	// BUG-1 regression test: item.Name[0] would panic on empty string
+	ticket := Ticket{
+		Id:    "T000",
+		Total: 5.00,
+		Store: constants.MERCADONA,
+		Date:  baseDate,
+		Items: []Item{
+			{Name: "", Amount: 1, Price: 5.00}, // empty name
+		},
+	}
+
+	vr, err := ticket.ToValueRange()
+	if err != nil {
+		t.Fatalf("unexpected error for empty item name: %v", err)
+	}
+	if vr == nil {
+		t.Fatal("expected non-nil ValueRange, got nil")
+	}
+	if len(vr.Values) != 1 {
+		t.Fatalf("got %d rows, want 1", len(vr.Values))
+	}
+	// Empty name should be preserved as empty string (not panic)
+	if vr.Values[0][2] != "" {
+		t.Errorf("row[0][2] = %q, want empty string", vr.Values[0][2])
+	}
+}
+
+func TestToValueRange_MixedEmptyAndPlusNames(t *testing.T) {
+	ticket := Ticket{
+		Id:    "T005",
+		Total: 10.00,
+		Store: constants.DIA,
+		Date:  baseDate,
+		Items: []Item{
+			{Name: "", Amount: 1, Price: 2.00},          // empty name
+			{Name: "+Bonus", Amount: 1, Price: 3.00},    // plus prefix
+			{Name: "Normal", Amount: 1, Price: 5.00},    // normal name
+		},
+	}
+
+	vr, err := ticket.ToValueRange()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(vr.Values) != 3 {
+		t.Fatalf("got %d rows, want 3", len(vr.Values))
+	}
+	// First row: empty name preserved as-is (no + prefix to escape)
+	if vr.Values[0][2] != "" {
+		t.Errorf("row[0][2] = %q, want empty string", vr.Values[0][2])
+	}
+	// Second row: plus prefix escaped with single quote
+	if vr.Values[1][2] != "'+Bonus" {
+		t.Errorf("row[1][2] = %q, want '+Bonus", vr.Values[1][2])
+	}
+	// Third row: normal name unchanged
+	if vr.Values[2][2] != "Normal" {
+		t.Errorf("row[2][2] = %q, want Normal", vr.Values[2][2])
+	}
+}
+
+func TestToValueRange_OriginalTicketItemsNotMutated(t *testing.T) {
+	// BUG-1 regression: the fix copies item.Name to a local var so the original
+	// ticket Items slice is not mutated.
+	ticket := Ticket{
+		Id:    "T006",
+		Total: 1.00,
+		Store: constants.MERCADONA,
+		Date:  baseDate,
+		Items: []Item{
+			{Name: "+Escaped", Amount: 1, Price: 1.00},
+		},
+	}
+
+	originalName := ticket.Items[0].Name
+	_, err := ticket.ToValueRange()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ticket.Items[0].Name != originalName {
+		t.Errorf("original item name mutated from %q to %q", originalName, ticket.Items[0].Name)
+	}
+}
+
+// --- Tests for BUG-1 edge cases ---
+
+func TestToValueRange_MultipleEmptyNames(t *testing.T) {
+	// Verify that multiple consecutive empty names don't cause issues
+	ticket := Ticket{
+		Id:    "T007",
+		Total: 3.00,
+		Store: constants.MERCADONA,
+		Date:  baseDate,
+		Items: []Item{
+			{Name: "", Amount: 1, Price: 1.00},
+			{Name: "", Amount: 1, Price: 1.00},
+			{Name: "", Amount: 1, Price: 1.00},
+		},
+	}
+
+	vr, err := ticket.ToValueRange()
+	if err != nil {
+		t.Fatalf("unexpected error for multiple empty names: %v", err)
+	}
+	if len(vr.Values) != 3 {
+		t.Fatalf("got %d rows, want 3", len(vr.Values))
+	}
+	for i := range vr.Values {
+		if vr.Values[i][2] != "" {
+			t.Errorf("row[%d][2] = %q, want empty string", i, vr.Values[i][2])
+		}
+	}
+}
+
+func TestToValueRange_PlusPrefixVariants(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"plus at start", "+Sale", "'+Sale"},
+		{"plus in middle", "A+B", "A+B"},
+		{"plus at end", "Item+", "Item+"},
+		{"just plus sign", "+", "'+"},
+		{"plus with space", "+ Bonus", "'+ Bonus"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ticket := Ticket{
+				Id:    "T010",
+				Total: 5.00,
+				Store: constants.DIA,
+				Date:  baseDate,
+				Items: []Item{
+					{Name: tt.input, Amount: 1, Price: 5.00},
+				},
+			}
+			vr, err := ticket.ToValueRange()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if vr.Values[0][2] != tt.expected {
+				t.Errorf("row[0][2] = %q, want %q", vr.Values[0][2], tt.expected)
+			}
+		})
+	}
+}
+
+func TestToValueRange_AllItemsEmptyNames(t *testing.T) {
+	// Edge case: ticket where ALL items have empty names
+	ticket := Ticket{
+		Id:    "T011",
+		Total: 10.00,
+		Store: constants.MERCADONA,
+		Date:  baseDate,
+		Items: []Item{
+			{Name: "", Amount: 1, Price: 3.00},
+			{Name: "", Amount: 2, Price: 7.00},
+		},
+	}
+
+	vr, err := ticket.ToValueRange()
+	if err != nil {
+		t.Fatalf("unexpected error for all-empty names: %v", err)
+	}
+	if len(vr.Values) != 2 {
+		t.Fatalf("got %d rows, want 2", len(vr.Values))
+	}
+}

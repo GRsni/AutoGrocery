@@ -132,15 +132,20 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 
 	slog.Info("✓ Cookies modal dismissed", "STORE", constants.CARREFOUR)
 
-	frame := page.MustElement("iframe[src*='/access']")
-	loginModal := frame.MustFrame()
-	loginModal.MustWaitLoad()
+	// Safely find the Gigya iframe — if absent, site layout may have changed
+	frameEl, err := page.Element("iframe[src*='/access']")
+	if err != nil {
+		slog.Error("Gigya iframe not found — Carrefour site layout may have changed", "ERROR", err)
+		return nil, cleanup, fmt.Errorf("cannot find Gigya login iframe: %w", err)
+	}
+	frame := frameEl.MustFrame()
+	frame.MustWaitLoad()
 
-	loginModal.MustElement("#gigya-loginID-133272631659353340").MustInput(creds.Carrefour.Username)
-	loginModal.MustElement("#gigya-password-66067780736329300").MustInput(creds.Carrefour.Password)
+	frame.MustElement("#gigya-loginID-133272631659353340").MustInput(creds.Carrefour.Username)
+	frame.MustElement("#gigya-password-66067780736329300").MustInput(creds.Carrefour.Password)
 	humanDelay()
-	loginModal.MustElement(`input.submit-ok[type="submit"]`).MustClick()
-	loginModal.MustWaitLoad().MustWaitIdle()
+	frame.MustElement(`input.submit-ok[type="submit"]`).MustClick()
+	frame.MustWaitLoad().MustWaitIdle()
 	humanDelay()
 	slog.Debug("Entered user details, waiting for 2FA email", "STORE", "CARREFOUR")
 
@@ -165,7 +170,7 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 func handle2FA(manager gm.Manager, page *rod.Page, err error) {
 	_, err2FAElement := TFAModalVisible(page)
 	if err2FAElement != nil {
-		slog.Error("Error while trying to find 2FA element", "ERROR", err)
+		slog.Error("Error while trying to find 2FA element", "ERROR", err2FAElement)
 		return
 	}
 
@@ -243,7 +248,7 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 		pageRows, errTicketList := page.Elements(`div.ticket-elem`)
 		if errTicketList != nil {
 			slog.Debug("Error finding ticket list items", "ERROR", errTicketList)
-			return nil
+			return []internal.Ticket{} // consistent with Dia/Mercadona: empty slice, not nil
 		}
 		row := pageRows[i]
 		dateStr := strings.TrimSpace(row.MustElement(`p.date-field`).MustText())

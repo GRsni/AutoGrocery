@@ -68,6 +68,12 @@ func GetClient(config *oauth2.Config, tokFile string) (*http.Client, error) {
 
 // getTokenFromWeb requests a token from the web via the OAuth consent flow.
 func getTokenFromWeb(config *oauth2.Config) (*oauth2.Token, error) {
+	// In test/CI environments, skip the interactive browser flow to avoid
+	// opening a browser tab and blocking on stdin during automated runs.
+	if os.Getenv("GOOGLE_AUTH_TEST") == "1" || os.Getenv("CI") == "true" {
+		return nil, fmt.Errorf("web auth skipped: no token file and GOOGLE_AUTH_TEST/CI mode active")
+	}
+
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
 
 	// 1. Automate Browser Opening

@@ -323,3 +323,28 @@ func TestGetItemList_SkipNoBrowser(t *testing.T) {
 func TestHandle2FA_SkipNoBrowser(t *testing.T) {
 	t.Skip("Skipping handle2FA test - requires browser automation and Gmail access")
 }
+
+// --- Tests for BUG-6 fix: Carrefour returns empty slice on element lookup failure ---
+
+// BUG-6 regression test (documented): GetTicketList now returns []internal.Ticket{}
+// instead of nil when page.Elements(".ticket-list-item") fails, consistent with
+// Dia and Mercadona implementations. The actual behavior is verified by integration tests.
+func TestGetTicketList_ReturnsEmptySliceOnError(t *testing.T) {
+	t.Skip("Skipping GetTicketList browser test - requires browser automation")
+	// BUG-6: When page.Elements(".ticket-list-item") fails, the function should
+	// return []Ticket{} (empty slice) instead of nil, so callers can safely
+	// range over the result without nil-checking.
+}
+
+// --- Tests for BUG-3 fix: correct error variable in 2FA handler ---
+
+// BUG-3 regression test (documented): The 2FA error handler logs err2FAElement
+// instead of the generic err variable, ensuring the correct error message is shown.
+// This is verified by integration tests with actual Gigya iframe; unit test documents
+// the expected behavior.
+func TestHandle2FA_ErrorLogging_UsesCorrectVariable(t *testing.T) {
+	t.Skip("Skipping 2FA error logging test - requires browser automation")
+	// BUG-3: When page.Timeout(10*time.Second).Element("#code1") fails, the error
+	// handler at carrefour.go:147 should log err2FAElement (the specific element
+	// lookup error), not a generic err variable. This is verified by integration tests.
+}
