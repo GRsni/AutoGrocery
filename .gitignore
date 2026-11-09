@@ -58,6 +58,10 @@ temp/
 *.tmp
 *.cache
 images/debug/
+# Compiled Go binaries
+autogrocery
+autogrocery-**.tar
+autogrocery-*linux-*
 
 # ============================================
 # Test coverage reports
@@ -92,8 +96,4 @@ data/
 htmlcov/
 
 /.claude/worktrees/
-autogrocery-latest.tar
 PROJECT_CONTEXT.md
-.deploy-cache
-autogrocery
-autogroceru-*.jar
