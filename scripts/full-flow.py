@@ -163,7 +163,7 @@ def main():
     # Check if existing cookies are still fresh
     if cookies_are_fresh(COOKIES_FILE, max_age_minutes=MAX_COOKIES_AGE):
         print(
-            f"Cookies are fresh (less than  minutes ${MAX_COOKIES_AGE} old). Skipping browser login."
+            f"Cookies are fresh (less than {MAX_COOKIES_AGE} minutes old). Skipping browser login."
         )
         print("Running Go service directly...")
         run_go_service(PROJECT_ROOT)

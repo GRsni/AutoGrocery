@@ -197,10 +197,10 @@ func TestGetId(t *testing.T) {
 func TestHumanDelay_NoPanic(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {
-			t.Errorf("humanDelay() panicked: %v", r)
+			t.Errorf("utils.HumanDelay() panicked: %v", r)
 		}
 	}()
-	humanDelay()
+	utils.HumanDelay()
 }
 
 // ============================================================================

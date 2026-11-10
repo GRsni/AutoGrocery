@@ -25,6 +25,27 @@ import (
 	"github.com/go-rod/stealth"
 )
 
+// Selector constants for Dia web scraping.
+// These map to the DOM structure of dia.es and should be updated if the site changes.
+const (
+	SelectorCookiesReject          = "#onetrust-reject-all-handler"
+	SelectorEmailInput             = "[data-test-id='email_input']"
+	SelectorPasswordInput          = "[data-test-id='password input_input']"
+	SelectorLoginButton            = "[data-test-id='email_continue_button_enabled']"
+	SelectorTicketListLink         = ".global-info__orders-link-content__button"
+	SelectorTicketCard             = ".tickets__ticket-container__card"
+	SelectorTicketActionButton     = "[data-test-id='button-action']"
+	SelectorTicketId               = ".ticket-detail-header__simplified-invoice"
+	SelectorProductRow             = "[data-test-id='ticket-products-product']"
+	SelectorProductName            = "[data-test-id='ticket-products-product-name']"
+	SelectorProductQuantity        = "[data-test-id='ticket-products-product-quantity']"
+	SelectorProductWeight          = "[data-test-id='ticket-products-product-weight']"
+	SelectorProductCancelled       = ".ticket-products__content-data-quantity--cancel"
+	SelectorProductAmount          = "[data-test-id='ticket-products-product-amount']"
+	SelectorProductPromotionAmount = "[data-test-id='ticket-products-product-promotion-amount']"
+	SelectorCloseModal             = "[data-test-id='ticket-detail-modal-cross']"
+)
+
 type Credentials struct {
 	Dia struct {
 		Username string `json:"username"`
@@ -39,12 +60,6 @@ type Cookie struct {
 	Path   string  `json:"path"`
 	Secure bool    `json:"secure"`
 	Expiry float64 `json:"expirationDate"`
-}
-
-const debugImagesPath string = "/images/debug/dia/"
-
-func humanDelay() {
-	time.Sleep(time.Duration(600+rand.Intn(600)) * time.Millisecond)
 }
 
 func LoadCredentials(filePath string) (*Credentials, error) {
@@ -201,10 +216,10 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 	slog.Info("✓ Navigated to Dia homepage", "STORE", constants.DIA)
 
 	//page.MustReload().MustWaitLoad().MustWaitIdle()
-	humanDelay()
+	utils.HumanDelay()
 
 	// Reject all cookies
-	cookiesBtn, err := page.Timeout(2 * time.Second).Element("#onetrust-reject-all-handler")
+	cookiesBtn, err := page.Timeout(2 * time.Second).Element(SelectorCookiesReject)
 	if err == nil {
 		cookiesBtn.MustClick()
 	}
@@ -214,7 +229,7 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		return nil, cleanup, fmt.Errorf("session expired — please re-export cookies from Firefox")
 	}
 
-	emailFieldFound, emailField, err := page.Has("[data-test-id='email_input']")
+	emailFieldFound, emailField, err := page.Has(SelectorEmailInput)
 	if err != nil {
 		slog.Debug("Cannot find email input field, skipping", "STORE", constants.DIA)
 		return nil, cleanup, err
@@ -227,13 +242,13 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 			time.Sleep(time.Duration(50+rand.Intn(100)) * time.Millisecond)
 		}
 		page.MustWaitStable()
-		humanDelay()
+		utils.HumanDelay()
 		slog.Debug("✓ Email added", "STORE", constants.DIA)
 	} else {
 		slog.Debug("Email input field not found", "STORE", constants.DIA)
 	}
 
-	passwordFieldFound, passwordField, err := page.Has("[data-test-id='password input_input']")
+	passwordFieldFound, passwordField, err := page.Has(SelectorPasswordInput)
 	if err != nil {
 		slog.Debug("Cannot find password input field, skipping", "STORE", constants.DIA)
 		return nil, cleanup, err
@@ -246,13 +261,13 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 			time.Sleep(time.Duration(50+rand.Intn(100)) * time.Millisecond)
 		}
 		page.MustWaitStable()
-		humanDelay()
+		utils.HumanDelay()
 		slog.Debug("✓ Password added", "STORE", constants.DIA)
 	} else {
 		slog.Debug("Password input field not found", "STORE", constants.DIA)
 	}
 
-	loginBtnFound, loginBtn, err := page.Has("[data-test-id='email_continue_button_enabled']")
+	loginBtnFound, loginBtn, err := page.Has(SelectorLoginButton)
 	if err != nil {
 		slog.Debug("Cannot find login button, skipping", "STORE", constants.DIA)
 		return nil, cleanup, err
@@ -262,9 +277,8 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		time.Sleep(time.Duration(300+rand.Intn(300)) * time.Millisecond)
 		loginBtn.MustClick()
 
-		humanDelay()
+		utils.HumanDelay()
 		page.MustWaitIdle()
-		//page.MustScreenshot(debugImagesPath + "login.png")
 		slog.Debug("✓ Login button clicked", "STORE", constants.DIA)
 	} else {
 		slog.Debug("Login button not found", "STORE", constants.DIA)
@@ -274,7 +288,7 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 }
 
 func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []string) []internal.Ticket {
-	ticketLisFound, ticketListLink, err := page.Has(".global-info__orders-link-content__button")
+	ticketLisFound, ticketListLink, err := page.Has(SelectorTicketListLink)
 	if err != nil {
 		slog.Debug("Error finding ticket list link", "ERROR", err)
 		return nil
@@ -284,15 +298,15 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 		return nil
 	}
 	ticketListLink.MustClick()
-	humanDelay()
+	utils.HumanDelay()
 	page.MustWaitLoad().MustWaitIdle()
 
-	cookiesBtn, err := page.Timeout(2 * time.Second).Element("#onetrust-reject-all-handler")
+	cookiesBtn, err := page.Timeout(2 * time.Second).Element(SelectorCookiesReject)
 	if err == nil {
 		cookiesBtn.MustClick()
 	}
 
-	ticketElements, err := page.Elements(".tickets__ticket-container__card")
+	ticketElements, err := page.Elements(SelectorTicketCard)
 	if err != nil {
 		slog.Debug("Error finding ticket list items", "ERROR", err)
 		return nil
@@ -329,23 +343,23 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 }
 
 func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time, ticketTotal float64) *internal.Ticket {
-	ticketBtnFound, ticketBtn, err := ticketElement.Has("[data-test-id='button-action']")
+	ticketBtnFound, ticketBtn, err := ticketElement.Has(SelectorTicketActionButton)
 	if err != nil {
 		slog.Debug("Cannot find ticket button, skipping", "ERROR", err)
 		return nil
 	}
 	if ticketBtnFound {
 		ticketBtn.Hover()
-		humanDelay()
+		utils.HumanDelay()
 		ticketBtn.MustClick()
 
-		humanDelay()
+		utils.HumanDelay()
 		slog.Debug("✓ Ticket button clicked", "STORE", constants.DIA)
 	} else {
 		slog.Debug("Ticket button not found", "STORE", constants.DIA)
 	}
 
-	ticketId, err := page.MustElement(".ticket-detail-header__simplified-invoice").Text()
+	ticketId, err := page.MustElement(SelectorTicketId).Text()
 	if err != nil {
 		slog.Debug("Cannot find ticket id, skipping", "STORE", constants.DIA)
 		return nil
@@ -364,7 +378,7 @@ func getTicketDetails(ticketElement *rod.Element, page *rod.Page, date time.Time
 
 	closeTicketModal(page)
 
-	humanDelay()
+	utils.HumanDelay()
 
 	return &internal.Ticket{Id: ticketId, Total: ticketTotal, Items: items, Date: date, Store: constants.DIA}
 }
@@ -384,7 +398,7 @@ func getDateAndTotal(ticketString string) (extractedDate time.Time, ticketTotal 
 }
 
 func getItemList(page *rod.Page) (internal.Items, error) {
-	rows, err := page.Elements("[data-test-id='ticket-products-product']")
+	rows, err := page.Elements(SelectorProductRow)
 	if err != nil {
 		slog.Debug("Error while trying to find item row element", "ERROR", err)
 		return nil, err
@@ -413,7 +427,7 @@ func getItemList(page *rod.Page) (internal.Items, error) {
 }
 
 func getItemName(element *rod.Element) string {
-	itemName, err := element.MustElement("[data-test-id='ticket-products-product-name']").Text()
+	itemName, err := element.MustElement(SelectorProductName).Text()
 	if err != nil {
 		slog.Debug("Error while trying to find item name element", "ERROR", err)
 		return ""
@@ -423,7 +437,7 @@ func getItemName(element *rod.Element) string {
 
 func getItemQty(element *rod.Element) (float64, bool) {
 	qtyStr := ""
-	itemQtyFound, itemQty, err := element.Has("[data-test-id='ticket-products-product-quantity']")
+	itemQtyFound, itemQty, err := element.Has(SelectorProductQuantity)
 	if err != nil {
 		slog.Debug("Error while trying to find item quantity element", "ERROR", err, "STORE", constants.DIA)
 		return 0.0, false
@@ -436,7 +450,7 @@ func getItemQty(element *rod.Element) (float64, bool) {
 		}
 	} else {
 		slog.Debug("Item quantity element not found, searching for weight")
-		weightFound, weightElement, err := element.Has("[data-test-id='ticket-products-product-weight']")
+		weightFound, weightElement, err := element.Has(SelectorProductWeight)
 		if err != nil {
 			slog.Debug("Error while trying to find item weight element", "ERROR", err, "STORE", constants.DIA)
 			return 0.0, false
@@ -447,7 +461,7 @@ func getItemQty(element *rod.Element) (float64, bool) {
 	}
 	parsedQty := utils.ParseQtyWithPrecision(qtyStr, 3)
 
-	hasCancelled, _, err := element.Has(".ticket-products__content-data-quantity--cancel")
+	hasCancelled, _, err := element.Has(SelectorProductCancelled)
 	if err != nil {
 		slog.Debug("Error while trying to read cancelled flag", "ERROR", err, "STORE", constants.DIA)
 		return 0, false
@@ -469,7 +483,7 @@ func getPricePerUnit(element *rod.Element, index int) float64 {
 }
 
 func getItemTotal(element *rod.Element) float64 {
-	itemTotal, err := element.MustElement("[data-test-id='ticket-products-product-amount']").Text()
+	itemTotal, err := element.MustElement(SelectorProductAmount).Text()
 	if err != nil {
 		slog.Debug("Error while trying to find item amount element", "ERROR", err, "STORE", constants.DIA)
 	}
@@ -478,7 +492,7 @@ func getItemTotal(element *rod.Element) float64 {
 }
 
 func getDiscount(element *rod.Element) float64 {
-	hasDiscount, itemDiscount, err := element.Has("[data-test-id='ticket-products-product-promotion-amount']")
+	hasDiscount, itemDiscount, err := element.Has(SelectorProductPromotionAmount)
 	if err != nil {
 		slog.Error("Error while trying to find item discount element", "ERROR", err, "STORE", constants.DIA)
 		return 0.0
@@ -502,9 +516,7 @@ func isTotalCorrect(qty float64, pricePer float64, totalFound float64) bool {
 }
 
 func closeTicketModal(page *rod.Page) {
-	const sel = "[data-test-id='ticket-detail-modal-cross']"
-
-	el, err := page.Timeout(5 * time.Second).Element(sel)
+	el, err := page.Element(SelectorCloseModal)
 	if err != nil {
 		slog.Warn("close button not found", "ERROR", err)
 		return
@@ -517,14 +529,6 @@ func closeTicketModal(page *rod.Page) {
 			slog.Warn("JS click failed", "ERROR", err)
 		}
 	}
-
-	for range 50 {
-		if has, _, _ := page.Has(sel); !has {
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	slog.Warn("ticket modal did not close")
 }
 
 func removeCancelledItems(items []internal.Item) []internal.Item {
@@ -549,7 +553,6 @@ func removeCancelledItems(items []internal.Item) []internal.Item {
 func applyDiscounts(items []internal.Item) []internal.Item {
 	for i := range items {
 		if items[i].Discount < 0 {
-			// Apply discount shared between units
 			items[i].Price = items[i].Price + items[i].Discount/items[i].Amount
 		}
 	}

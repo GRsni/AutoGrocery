@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -76,4 +77,10 @@ func StringToDate(input string) time.Time {
 		date, _ = time.Parse("02/1/2006", input)
 	}
 	return date
+}
+
+// HumanDelay sleeps for 600-1200ms to simulate human-like timing.
+// Use this in browser automation to avoid rate-limiting or bot detection.
+func HumanDelay() {
+	time.Sleep(time.Duration(600+rand.Intn(600)) * time.Millisecond)
 }

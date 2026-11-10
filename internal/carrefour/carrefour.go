@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"math/rand"
 	"os"
 	"regexp"
 	"slices"
@@ -25,7 +24,34 @@ import (
 	"google.golang.org/api/gmail/v1"
 )
 
-const Gmail2FALabelId = "Label_9053428003199955812"
+// Selector constants for Carrefour web scraping.
+// These map to the DOM structure of carrefour.es and should be updated if the site changes.
+const (
+	SelectorAccountMenu       = ".account-menu"
+	SelectorAccountModalLogin = ".account-modal__login"
+	SelectorGigyaIframe       = "iframe[src*='/access']"
+	SelectorGigyaLoginID      = "#gigya-loginID-133272631659353340"
+	SelectorGigyaPassword     = "#gigya-password-66067780736329300"
+	SelectorGigyaSubmit       = `input.submit-ok[type="submit"]`
+	SelectorAccountMenuLogged = `div.account-menu--logged`
+	SelectorAreaPrivadaLink   = `a[href*="area-privada/dashboard"]`
+	SelectorTicketElem        = `div.ticket-elem`
+	SelectorTicketDateField   = `p.date-field`
+	SelectorTicketPriceField  = `div.price-field p`
+	SelectorShowMoreLink      = "a"
+	TextShowAll               = "Ver todas"
+	SelectorTableFooter       = "table.table-white tfoot tr"
+	SelectorDiscountLabel     = "td"
+	TextDiscountApplied       = "DESCUENTOS APLICADOS"
+	SelectorTicketCloseSpan   = "span.link-crumbs"
+	TextMisCompras            = "Mis compras"
+	SelectorTableRow          = "table.table-white tbody tr"
+	SelectorTableRowNotLast   = `:not(:last-child)`
+	SelectorRowFirstCell      = `td:first-child`
+	SelectorRowUnitsSpan      = `td.text-gray span`
+	SelectorRowPriceStrong    = `td.price strong`
+	Gmail2FALabelId           = "Label_9053428003199955812"
+)
 
 type Credentials struct {
 	Carrefour struct {
@@ -34,10 +60,7 @@ type Credentials struct {
 	} `json:"carrefour"`
 }
 
-func humanDelay() {
-	time.Sleep(time.Duration(600+rand.Intn(600)) * time.Millisecond)
-}
-
+// LoadCredentials reads Carrefour credentials from a JSON file.
 func LoadCredentials(filePath string) (*Credentials, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -95,7 +118,7 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 
 	slog.Info("✓ Navigated to Carrefour homepage", "STORE", constants.CARREFOUR)
 
-	found, el, err := page.Has(".account-menu")
+	found, el, err := page.Has(SelectorAccountMenu)
 	if err != nil {
 		slog.Warn("Cannot find element Account menu button, skipping")
 		return nil, cleanup, err
@@ -108,7 +131,7 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 		slog.Debug("Account menu not found", "STORE", constants.CARREFOUR)
 	}
 
-	found, el, err = page.Has(".account-modal__login")
+	found, el, err = page.Has(SelectorAccountModalLogin)
 	if err != nil {
 		slog.Info("Cannot find element Account menu button, skipping")
 		return nil, cleanup, err
@@ -121,7 +144,7 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 	} else {
 		slog.Debug("Login button not found", "STORE", constants.CARREFOUR)
 	}
-	humanDelay()
+	utils.HumanDelay()
 
 	slog.Info("✓ Login page open", "STORE", constants.CARREFOUR)
 
@@ -133,7 +156,7 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 	slog.Info("✓ Cookies modal dismissed", "STORE", constants.CARREFOUR)
 
 	// Safely find the Gigya iframe — if absent, site layout may have changed
-	frameEl, err := page.Element("iframe[src*='/access']")
+	frameEl, err := page.Element(SelectorGigyaIframe)
 	if err != nil {
 		slog.Error("Gigya iframe not found — Carrefour site layout may have changed", "ERROR", err)
 		return nil, cleanup, fmt.Errorf("cannot find Gigya login iframe: %w", err)
@@ -141,33 +164,32 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 	frame := frameEl.MustFrame()
 	frame.MustWaitLoad()
 
-	frame.MustElement("#gigya-loginID-133272631659353340").MustInput(creds.Carrefour.Username)
-	frame.MustElement("#gigya-password-66067780736329300").MustInput(creds.Carrefour.Password)
-	humanDelay()
-	frame.MustElement(`input.submit-ok[type="submit"]`).MustClick()
+	frame.MustElement(SelectorGigyaLoginID).MustInput(creds.Carrefour.Username)
+	frame.MustElement(SelectorGigyaPassword).MustInput(creds.Carrefour.Password)
+	utils.HumanDelay()
+	frame.MustElement(SelectorGigyaSubmit).MustClick()
 	frame.MustWaitLoad().MustWaitIdle()
-	humanDelay()
+	utils.HumanDelay()
 	slog.Debug("Entered user details, waiting for 2FA email", "STORE", "CARREFOUR")
 
-	handle2FA(manager, page, err)
+	handle2FA(manager, page)
 
-	page.MustElement(`div.account-menu--logged`).MustClick()
+	page.MustElement(SelectorAccountMenuLogged).MustClick()
 	page.MustWaitStable().MustWaitIdle()
-	humanDelay()
-	page.MustElement(`a[href*="area-privada/dashboard"]`).MustClick()
+	utils.HumanDelay()
+	page.MustElement(SelectorAreaPrivadaLink).MustClick()
 	page.MustWaitStable().MustWaitIdle()
 	// Optionally click on cookies
 	page.Mouse.MustMoveTo(700, 410)
 	page.Mouse.MustClick("left")
-	page.MustElementR("a", "Ver todas").MustClick()
+	page.MustElementR(SelectorShowMoreLink, TextShowAll).MustClick()
 	page.MustWaitStable().MustWaitIdle()
-	time.Sleep(5 * time.Second)
 	slog.Info("Logged into Carrefour, loading tickets now", "STORE", "CARREFOUR")
 
 	return page, cleanup, nil
 }
 
-func handle2FA(manager gm.Manager, page *rod.Page, err error) {
+func handle2FA(manager gm.Manager, page *rod.Page) {
 	_, err2FAElement := TFAModalVisible(page)
 	if err2FAElement != nil {
 		slog.Error("Error while trying to find 2FA element", "ERROR", err2FAElement)
@@ -245,13 +267,13 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 	tickets := make([]internal.Ticket, 0, totalRows)
 
 	for i := 0; i < totalRows; i++ {
-		pageRows, errTicketList := page.Elements(`div.ticket-elem`)
+		pageRows, errTicketList := page.Elements(SelectorTicketElem)
 		if errTicketList != nil {
 			slog.Debug("Error finding ticket list items", "ERROR", errTicketList)
 			return []internal.Ticket{} // consistent with Dia/Mercadona: empty slice, not nil
 		}
 		row := pageRows[i]
-		dateStr := strings.TrimSpace(row.MustElement(`p.date-field`).MustText())
+		dateStr := strings.TrimSpace(row.MustElement(SelectorTicketDateField).MustText())
 		ticketDate, errParseDate := time.Parse(constants.TicketDateFormat, dateStr)
 		if errParseDate != nil {
 			slog.Warn("Unable to get ticket date", "ERROR", errParseDate)
@@ -262,7 +284,7 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 			slog.Debug("Last ticket is older than ticket found, exiting", "STORE", constants.CARREFOUR)
 			break
 		}
-		ticketTotal := utils.ParsePrice(row.MustElement(`div.price-field p`).MustText())
+		ticketTotal := utils.ParsePrice(row.MustElement(SelectorTicketPriceField).MustText())
 		if ticketDateComparison == 0 && utils.FloatsEqual(ticketTotal, lastEntryToCompare.Total) {
 			slog.Info("New ticket found has same date and total as last stored ticket, discarding", "DATE", ticketDate, "TOTAL", ticketTotal)
 			continue
@@ -290,7 +312,7 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 }
 
 func getNumberOfTickets(page *rod.Page) (int, error) {
-	pageRows, errTicketList := page.Elements(`div.ticket-elem`)
+	pageRows, errTicketList := page.Elements(SelectorTicketElem)
 	if errTicketList != nil {
 		slog.Debug("Error finding ticket list items", "ERROR", errTicketList)
 		return 0, errTicketList
@@ -300,17 +322,17 @@ func getNumberOfTickets(page *rod.Page) (int, error) {
 }
 
 func getTicketDetails(page *rod.Page, date time.Time, total float64) *internal.Ticket {
-	hasShowMore, showMoreBtn, errShowAll := page.HasR("a", "Mostrar todos")
+	hasShowMore, showMoreBtn, errShowAll := page.HasR(SelectorShowMoreLink, TextShowAll)
 	if errShowAll != nil {
 		slog.Error("Error while finding show more button", "ERROR", errShowAll)
 		return nil
 	}
 	if hasShowMore {
 		showMoreBtn.Hover()
-		humanDelay()
+		utils.HumanDelay()
 		showMoreBtn.MustClick()
 	}
-	humanDelay()
+	utils.HumanDelay()
 
 	items := getItemList(page, hasShowMore)
 
@@ -335,8 +357,8 @@ func getTicketDetails(page *rod.Page, date time.Time, total float64) *internal.T
 
 func getTotalTicketDiscount(page *rod.Page) float64 {
 	var numRe = regexp.MustCompile(`^-?\d+(?:[.,]\d+)?`)
-	hasDiscount, discountRow, errHasDiscount := page.Has("table.table-white tfoot tr")
-	hasDiscount2, _, errHasDiscount2 := page.HasR("td", "DESCUENTOS APLICADOS")
+	hasDiscount, discountRow, errHasDiscount := page.Has(SelectorTableFooter)
+	hasDiscount2, _, errHasDiscount2 := page.HasR(SelectorDiscountLabel, TextDiscountApplied)
 	if errHasDiscount != nil || errHasDiscount2 != nil {
 		slog.Error("Error while getting table footer", "ERROR", errHasDiscount)
 	}
@@ -352,7 +374,7 @@ func getTotalTicketDiscount(page *rod.Page) float64 {
 }
 
 func closeTicketPage(page *rod.Page) {
-	ticketClose, err := page.ElementR("span.link-crumbs", "Mis compras")
+	ticketClose, err := page.ElementR(SelectorTicketCloseSpan, TextMisCompras)
 	if err != nil {
 		slog.Debug("Cannot find ticket button, skipping")
 	}
@@ -363,16 +385,16 @@ func closeTicketPage(page *rod.Page) {
 
 func getItemList(page *rod.Page, hasShowMore bool) internal.Items {
 	items := make([]internal.Item, 0, 1)
-	rowsSelector := "table.table-white tbody tr"
+	rowsSelector := SelectorTableRow
 	if hasShowMore {
-		rowsSelector += ":not(:last-child)"
+		rowsSelector += SelectorTableRowNotLast
 	}
 	rows := page.MustElements(rowsSelector)
 
 	for _, row := range rows {
-		name := row.MustElement(`td:first-child`).MustText()
-		units := utils.ParseQtyWithPrecision(row.MustElement(`td.text-gray span`).MustText(), 3)
-		total := utils.ParsePrice(row.MustElement(`td.price strong`).MustText())
+		name := row.MustElement(SelectorRowFirstCell).MustText()
+		units := utils.ParseQtyWithPrecision(row.MustElement(SelectorRowUnitsSpan).MustText(), 3)
+		total := utils.ParsePrice(row.MustElement(SelectorRowPriceStrong).MustText())
 		pricePerUnit := total / units
 
 		items = append(items, internal.Item{Name: name, Amount: units, Price: pricePerUnit})

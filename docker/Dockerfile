@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     libatspi2.0-0 \
     libxshmfence1 \
+    libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set virtual display and Firefox sandbox settings for headless Docker

@@ -2,14 +2,11 @@ package internal
 
 import (
 	"autoGrocery/internal/google/sh"
-	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
-
-	"google.golang.org/api/sheets/v4"
 )
 
 type Item struct {
@@ -30,12 +27,6 @@ type Ticket struct {
 	Date  time.Time
 }
 
-type UploadableTicket interface {
-	TicketToStr() string
-	ToValueRange() *sheets.ValueRange
-	IsExcluded([]string) bool
-}
-
 type ValidatedItems interface {
 	IsTotalValid() bool
 	IsTotalValidWithPrecision(precision int) bool
@@ -47,28 +38,6 @@ type CastableItem interface {
 
 type CastableTicket interface {
 	ToEntry() sh.Entry
-}
-
-func (ticket Ticket) ToValueRange() (*sheets.ValueRange, error) {
-	var values [][]any
-
-	for _, item := range ticket.Items {
-		name := item.Name // copy to avoid mutating the original
-		if len(name) > 0 && name[0] == '+' {
-			name = "'" + name
-		}
-		row := []any{"", "", name, item.Amount, item.Price}
-		values = append(values, row)
-	}
-	if len(values) == 0 {
-		return nil, fmt.Errorf("ticket contains no items to upload")
-	}
-	values[0][0] = ticket.Date.Format(constants.TicketDateFormat)
-	values[0][1] = ticket.Store + "\n" + ticket.Id
-
-	valRange := sheets.ValueRange{MajorDimension: "ROWS", Values: values}
-
-	return &valRange, nil
 }
 
 func (ticket Ticket) TicketToStr() string {

@@ -155,7 +155,7 @@ func uploadNewTickets(newEntryList []sh.Entry, sheetsManager sh.Manager) {
 		valueRange, err := entryToUpload.ToValueRange()
 		if err != nil {
 			slog.Info("Unable to create value range object, skipping", "ERROR", err)
-			return
+			continue
 		}
 		_ = sh.WriteToSheet(sheetsManager, valueRange, entryToUpload.FirstRow+1)
 	}
