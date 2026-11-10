@@ -97,3 +97,4 @@ htmlcov/
 
 /.claude/worktrees/
 PROJECT_CONTEXT.md
+.deploy-cache

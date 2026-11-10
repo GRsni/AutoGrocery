@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Build, transfer, and load Docker image on Raspberry Pi
-# Usage: ./deploy/deploy.sh <user@host> [tag] [remote-dest] [--force]
+# Usage: ./deploy/deploy.sh <user@host> [tag] [remote-dest] [--force] [--push-only]
 # Example: ./deploy/deploy.sh user@192.168.1.x autogrocery:latest
 #          ./deploy/deploy.sh user@192.168.1.x autogrocery:v1.2 /mnt/data
 #          ./deploy/deploy.sh user@192.168.1.x --force       (rebuild even if source unchanged)
+#          ./deploy/deploy.sh user@192.168.1.x --push-only   (skip build, push existing local image)
 
 set -euo pipefail
 
@@ -11,10 +12,13 @@ set -euo pipefail
 # Parse flags first (before positional args), strip them from $@
 # ---------------------------------------------------------------------------
 FORCE_BUILD=0
+PUSH_ONLY=0
 CLEAN_ARGS=()
 for arg in "$@"; do
     if [ "$arg" = "--force" ]; then
         FORCE_BUILD=1
+    elif [ "$arg" = "--push-only" ]; then
+        PUSH_ONLY=1
     else
         CLEAN_ARGS+=("$arg")
     fi
@@ -24,7 +28,7 @@ set -- "${CLEAN_ARGS[@]}"
 HOST="${1:?Usage: $0 <user@host> [tag] [remote-dest]}"
 TAG="${2:-autogrocery:latest}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="${SCRIPT_DIR%/scripts}"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TAR_FILE="autogrocery-latest.tar"
 CACHE_FILE="$PROJECT_ROOT/.deploy-cache"
 
@@ -52,38 +56,55 @@ LAST_HASH=""
 if [ -f "$CACHE_FILE" ]; then
     LAST_HASH="$(cat "$CACHE_FILE")"
 fi
-CURRENT_HASH="$(compute_source_hash)"
+CURRENT_HASH="$(cd "$PROJECT_ROOT" && compute_source_hash)"
+echo "Stored newly computed hash $CURRENT_HASH and stored it at $PROJECT_ROOT"
 
-if [ "$FORCE_BUILD" -eq 0 ] && [ "$LAST_HASH" = "$CURRENT_HASH" ] && [ -n "$LAST_HASH" ]; then
-    echo "=== No source changes since last deploy (hash: ${CURRENT_HASH:0:12}) ==="
-    echo "Checking if image already exists on remote..."
-    EXISTS="$(ssh "$HOST" "docker images --format '{{.Repository}}:{{.Tag}}' | grep -c '^$(echo "$TAG" | cut -d: -f1):$(echo "$TAG" | cut -d: -f2)$' || true")"
-    if [ "$EXISTS" -gt 0 ]; then
-        echo "Image '$TAG' already exists on remote. Nothing to do."
-        exit 0
-    else
-        echo "Image not found on remote — will rebuild."
+# ---------------------------------------------------------------------------
+# Push-only mode: skip caching/build, just push existing local image
+# ---------------------------------------------------------------------------
+if [ "$PUSH_ONLY" -eq 1 ]; then
+    if ! docker image inspect "$TAG" >/dev/null 2>&1; then
+        echo "ERROR: Image '$TAG' not found locally. Build it first, or omit --push-only."
+        exit 1
     fi
+    echo "=== Push-only mode: skipping build (image '$TAG' exists locally) ==="
+else
+    # ---------------------------------------------------------------------------
+    # Caching: skip build/transfer if source files haven't changed
+    # ---------------------------------------------------------------------------
+    if [ "$FORCE_BUILD" -eq 0 ] && [ "$LAST_HASH" = "$CURRENT_HASH" ] && [ -n "$LAST_HASH" ]; then
+        echo "=== No source changes since last deploy (hash: ${CURRENT_HASH:0:12}) ==="
+        echo "Checking if image already exists on remote..."
+        EXISTS="$(ssh "$HOST" "docker images --format '{{.Repository}}:{{.Tag}}' | grep -c '^$(echo "$TAG" | cut -d: -f1):$(echo "$TAG" | cut -d: -f2)$' || true")"
+        if [ "$EXISTS" -gt 0 ]; then
+            echo "Image '$TAG' already exists on remote. Nothing to do."
+            exit 0
+        else
+            echo "Image not found on remote — will rebuild."
+        fi
+    fi
+
+    # ---------------------------------------------------------------------------
+    # Persist cache hash BEFORE building — survives partial failures so retries
+    # skip the expensive build step when source hasn't changed
+    # ---------------------------------------------------------------------------
+    echo "$CURRENT_HASH" > "$CACHE_FILE"
 fi
 
 # ---------------------------------------------------------------------------
-# Persist cache hash BEFORE building — survives partial failures so retries
-# skip the expensive build step when source hasn't changed
-# ---------------------------------------------------------------------------
-echo "$CURRENT_HASH" > "$CACHE_FILE"
-
-# ---------------------------------------------------------------------------
-# Build & export
+# Build & export (skip if --push-only)
 # ---------------------------------------------------------------------------
 cd "$PROJECT_ROOT"
 
-echo "=== Building Docker image for ARM64 ==="
-docker buildx build \
-    --platform linux/arm64 \
-    --tag "$TAG" \
-    --load \
-    -f docker/Dockerfile \
-    .
+if [ "$PUSH_ONLY" -eq 0 ]; then
+    echo "=== Building Docker image for ARM64 ==="
+    docker buildx build \
+        --platform linux/arm64 \
+        -t "$TAG" \
+        --load \
+        -f docker/Dockerfile \
+        .
+fi
 
 echo "=== Exporting image to tar ==="
 docker save -o "$TAR_FILE" "$TAG"
