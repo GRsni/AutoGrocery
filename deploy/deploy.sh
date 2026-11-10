@@ -24,7 +24,7 @@ set -- "${CLEAN_ARGS[@]}"
 HOST="${1:?Usage: $0 <user@host> [tag] [remote-dest]}"
 TAG="${2:-autogrocery:latest}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="${SCRIPT_DIR%/scripts}"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TAR_FILE="autogrocery-latest.tar"
 CACHE_FILE="$PROJECT_ROOT/.deploy-cache"
 
@@ -43,7 +43,7 @@ compute_source_hash() {
     # Hash every file that affects the built image (Dockerfile + sources)
     # Exclude deploy.sh itself — not part of the image, only orchestrates builds
     git -C "$PROJECT_ROOT" ls-files \
-        docker/Dockerfile go.mod go.sum cmd/ scripts/ config/ internal/ pkg/ \
+        docker/Dockerfile go/go.mod go/go.sum go/cmd/ scripts/ config/ go/internal/ go/pkg/ go/utils/ \
         -- ':!deploy/deploy.sh' \
         2>/dev/null | sort | xargs sha256sum 2>/dev/null | sha256sum | cut -d' ' -f1
 }

@@ -26,14 +26,19 @@ jobs:
 
       - name: Verify go.sum is up to date
         run: |
+          cd go/
           go mod tidy
           git diff --exit-code go.sum
 
       - name: Build
-        run: go build -v ./...
+        run: |
+          cd go/
+          go build -v ./...
 
       - name: Test
-        run: go test -v ./...
+        run: |
+          cd go/
+          go test -v ./...
 
       - name: Update coverage report
         uses: ncruces/go-coverage-report@69fd9ab687d384cc6c78c31967e204abdfa21271 #v0.3.2
@@ -90,6 +95,7 @@ jobs:
       - name: Build ARM64 binary
         if: steps.check-tag.outputs.EXISTS == 'false'
         run: |
+          cd go/
           BINARY="autogrocery-${{ steps.version.outputs.VERSION }}-linux-arm64"
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
             -ldflags "-X main.Version=${{ steps.version.outputs.VERSION }} -X main.BuildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -98,6 +104,8 @@ jobs:
           # Create a symlink for easy identification
           ln -s "${BINARY}" autogrocery-linux-arm64
           ls -lh "${BINARY}"
+          # Copy binary to root for the release step (cd only affects current step)
+          cp "${BINARY}" ../${BINARY}
 
       - name: Create or update Release
         if: steps.check-tag.outputs.EXISTS == 'false'

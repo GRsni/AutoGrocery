@@ -1,11 +1,9 @@
 # Build stage for Go binary
 FROM golang:1.26-bookworm AS go-builder
 
-WORKDIR /src
-COPY go.mod go.sum ./
+WORKDIR /src/go
+COPY go/ .
 RUN go mod download
-
-COPY . .
 RUN go build -ldflags "-X main.Version=$(git describe --tags --always --dirty)-$(date +%Y-%m-%dT%H:%M:%SZ)" -o /usr/local/bin/autogrocery ./cmd/autogrocery/
 
 # Final stage: Python + Playwright + Go binary (Debian-based for Raspberry Pi OS compatibility)
