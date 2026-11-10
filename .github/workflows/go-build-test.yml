@@ -46,6 +46,7 @@ jobs:
           report: true
           chart: true
           amend: true
+          module-dir: go/
         if: github.event_name == 'push'
         continue-on-error: true
 

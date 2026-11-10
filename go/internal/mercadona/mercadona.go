@@ -7,6 +7,7 @@ import (
 	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -14,16 +15,15 @@ import (
 	"time"
 
 	"github.com/ledongthuc/pdf"
-	"google.golang.org/api/gmail/v1"
 )
 
 const GmailLabelId = "Label_2031551581397134603"
 const TicketHeaderRows = 7
 
-func GetTicketList(manager gm.Manager, lastEntryToCompare sh.Entry, excludedIds []string) []internal.Ticket {
+func GetTicketList(ctx context.Context, manager gm.Manager, lastEntryToCompare sh.Entry, excludedIds []string) []internal.Ticket {
 	tickets := make([]internal.Ticket, 0)
 
-	messages := gm.GetMessagesFromLabel(manager, GmailLabelId)
+	messages := gm.GetMessagesFromLabel(ctx, manager, GmailLabelId)
 
 	for _, message := range messages {
 		ticketDate, err := getDateFromTicket(message)
@@ -47,7 +47,7 @@ func GetTicketList(manager gm.Manager, lastEntryToCompare sh.Entry, excludedIds 
 			slog.Info("Found excluded ticket, discarding", "ID", id)
 			continue
 		}
-		ticket := getTicketDetails(manager, message, ticketDate, id, ticketTotal)
+		ticket := getTicketDetails(ctx, manager, message, ticketDate, id, ticketTotal)
 		if ticket != nil {
 			tickets = append(tickets, *ticket)
 			slog.Info(ticket.TicketToStr())
@@ -75,8 +75,8 @@ func getDateFromTicket(message *gmail.Message) (time.Time, error) {
 	return date, nil
 }
 
-func getTicketDetails(manager gm.Manager, message *gmail.Message, ticketDate time.Time, id string, ticketTotal float64) *internal.Ticket {
-	items := getTicketItems(manager, message)
+func getTicketDetails(ctx context.Context, manager gm.Manager, message *gmail.Message, ticketDate time.Time, id string, ticketTotal float64) *internal.Ticket {
+	items := getTicketItems(ctx, manager, message)
 
 	if !items.IsTotalValid(ticketTotal) {
 		slog.Warn("Ticket price does not match up, discarding")
@@ -96,9 +96,9 @@ func getTicketId(message *gmail.Message) string {
 	return snippetParts[len(snippetParts)-1]
 }
 
-func getTicketItems(manager gm.Manager, m *gmail.Message) internal.Items {
+func getTicketItems(ctx context.Context, manager gm.Manager, m *gmail.Message) internal.Items {
 	items := make([]internal.Item, 0, 1)
-	fileBytes := gm.GetAttachmentFromMessage(manager, m.Id, m.Payload.Parts[1].Body.AttachmentId)
+	fileBytes := gm.GetAttachmentFromMessage(ctx, manager, m.Id, m.Payload.Parts[1].Body.AttachmentId)
 	r, err := pdf.NewReader(bytes.NewReader(fileBytes), int64(len(fileBytes)))
 	if err != nil {
 		slog.Error("Unable to parse data as PDF file", "ERROR", err)

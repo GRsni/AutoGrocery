@@ -66,6 +66,54 @@ func GetClient(config *oauth2.Config, tokFile string) (*http.Client, error) {
 	return config.Client(context.Background(), tok), nil
 }
 
+// GetClientWithCtx retrieves a token using the provided context for refresh and exchange operations.
+func GetClientWithCtx(ctx context.Context, config *oauth2.Config, tokFile string) (*http.Client, error) {
+	tok, err := tokenFromFile(tokFile)
+
+	// --- PHASE 1: No Token Found (or file corrupted) ---
+	if err != nil {
+		slog.Info("No valid token found in file. Initiating web flow.")
+		newTok, err := getTokenFromWeb(config)
+		if err != nil {
+			return nil, fmt.Errorf("failed during initial web flow: %w", err)
+		}
+		saveToken(tokFile, newTok)
+		tok = newTok
+	}
+
+	// --- PHASE 2: Token Found, Check Expiry ---
+	if !tok.Expiry.IsZero() && time.Now().After(tok.Expiry) {
+		slog.Info("Token expired, attempting refresh using refresh_token")
+
+		// Attempt to refresh the token with context
+		newTok, err := config.TokenSource(ctx, tok).Token()
+
+		if err != nil {
+			// Refresh failed (e.g., invalid_grant).
+			slog.Error("Failed to refresh token. Token may be revoked or expired.", "error", err)
+
+			// Clean up the dead token file so we don't keep trying it
+			os.Remove(tokFile)
+
+			// Since the refresh failed, we MUST abandon this token and force a fresh web flow
+			slog.Info("Forcing full re-authentication via web flow.")
+
+			newTok, err = getTokenFromWeb(config)
+			if err != nil {
+				return nil, fmt.Errorf("failed during re-authentication web flow: %w", err)
+			}
+			tok = newTok
+			saveToken(tokFile, tok)
+		} else {
+			// Refresh succeeded
+			tok = newTok
+			saveToken(tokFile, tok)
+		}
+	}
+
+	return config.Client(ctx, tok), nil
+}
+
 // getTokenFromWeb requests a token from the web via the OAuth consent flow.
 func getTokenFromWeb(config *oauth2.Config) (*oauth2.Token, error) {
 	// In test/CI environments, skip the interactive browser flow to avoid

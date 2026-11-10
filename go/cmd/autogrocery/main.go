@@ -67,7 +67,8 @@ func main() {
 
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, time.Now().Location())
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
 
 	oAuthConfig := token.GetOauthConfig(CredsFilePath, sheets.SpreadsheetsScope, gmail.MailGoogleComScope)
 
@@ -85,7 +86,7 @@ func main() {
 
 	slog.Info(fmt.Sprintf("Fetched %d tickets for %v %v %v", len(ticketsFromSheet), currentYear, constants.FromTimeMonth(currentMonth), currentDay))
 
-	newTicketsMap := getAllTicketsFromStores(gmailManager, ticketsFromSheet, firstOfMonth, storesToFetch)
+	newTicketsMap := getAllTicketsFromStores(ctx, gmailManager, ticketsFromSheet, firstOfMonth, storesToFetch)
 
 	newTicketsList := CombineTickets(newTicketsMap)
 
@@ -161,7 +162,7 @@ func uploadNewTickets(newEntryList []sh.Entry, sheetsManager sh.Manager) {
 	}
 }
 
-func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firstOfMonth time.Time, storesToFetch []string) map[string][]internal.Ticket {
+func getAllTicketsFromStores(ctx context.Context, gmManager gm.Manager, sheetEntries []sh.Entry, firstOfMonth time.Time, storesToFetch []string) map[string][]internal.Ticket {
 	allTickets := make(map[string][]internal.Ticket)
 
 	excluded, errLoadExcluded := internal.LoadExcluded("config/excluded.json")
@@ -177,10 +178,16 @@ func getAllTicketsFromStores(gmManager gm.Manager, sheetEntries []sh.Entry, firs
 		wg.Add(1)
 		go func(store string) {
 			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				results <- map[string][]internal.Ticket{store: []internal.Ticket{}}
+				return
+			default:
+			}
 			lastEntryFromSheets := sh.GetLastEntryForStore(sheetEntries, store)
 			lastEntryToCompare := getLastEntryToCompare(lastEntryFromSheets, store, firstOfMonth)
 
-			newFoundTickets := getTicketsForStore(gmManager, store, lastEntryToCompare, excluded)
+			newFoundTickets := getTicketsForStore(ctx, gmManager, store, lastEntryToCompare, excluded)
 			results <- map[string][]internal.Ticket{store: newFoundTickets}
 		}(store)
 	}
@@ -207,26 +214,26 @@ func getLastEntryToCompare(lastEntryFromSheets *sh.Entry, store string, firstOfM
 	return *lastEntryFromSheets
 }
 
-func getTicketsForStore(gmManager gm.Manager, store string, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
+func getTicketsForStore(ctx context.Context, gmManager gm.Manager, store string, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
 	var newFoundTickets []internal.Ticket
 	switch store {
 	case constants.MERCADONA:
-		newFoundTickets = getMercadonaTickets(gmManager, lastEntryToCompare, excluded)
+		newFoundTickets = getMercadonaTickets(ctx, gmManager, lastEntryToCompare, excluded)
 	case constants.DIA:
-		newFoundTickets = getDiaTickets(lastEntryToCompare, excluded)
+		newFoundTickets = getDiaTickets(ctx, lastEntryToCompare, excluded)
 	case constants.CARREFOUR:
-		newFoundTickets = getCarrefourTickets(gmManager, lastEntryToCompare, excluded)
+		newFoundTickets = getCarrefourTickets(ctx, gmManager, lastEntryToCompare, excluded)
 	}
 	slog.Info("Found new tickets", "TICKETS", len(newFoundTickets), "STORE", store)
 	return newFoundTickets
 }
 
-func getMercadonaTickets(manager gm.Manager, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
-	tickets := mercadona.GetTicketList(manager, lastEntryToCompare, excluded.MercadonaIds)
+func getMercadonaTickets(ctx context.Context, manager gm.Manager, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
+	tickets := mercadona.GetTicketList(ctx, manager, lastEntryToCompare, excluded.MercadonaIds)
 	return tickets
 }
 
-func getDiaTickets(lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
+func getDiaTickets(ctx context.Context, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
 	page, cleanup, err := dia.LoginToDia(CredsFilePath, CookiesPath)
 	if err != nil {
 		slog.Warn("Unable to fetch tickets from DIA", "ERROR", err)
@@ -241,8 +248,8 @@ func getDiaTickets(lastEntryToCompare sh.Entry, excluded internal.Excluded) []in
 	return newDiaTickets
 }
 
-func getCarrefourTickets(manager gm.Manager, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
-	page, cleanup, err := carrefour.LoginToCarrefour(manager, CredsFilePath)
+func getCarrefourTickets(ctx context.Context, manager gm.Manager, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
+	page, cleanup, err := carrefour.LoginToCarrefour(ctx, manager, CredsFilePath)
 	if err != nil {
 		cleanup()
 		return []internal.Ticket{}

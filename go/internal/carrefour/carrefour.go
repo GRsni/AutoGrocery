@@ -77,7 +77,7 @@ func LoadCredentials(filePath string) (*Credentials, error) {
 	return &creds, nil
 }
 
-func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), error) {
+func LoginToCarrefour(ctx context.Context, manager gm.Manager, credsPath string) (*rod.Page, func(), error) {
 	// Launch browser (headless by default)
 	// Use system chromium if available, otherwise let Rod download its own
 	browserPath := os.Getenv("CHROME_PATH")
@@ -189,14 +189,14 @@ func LoginToCarrefour(manager gm.Manager, credsPath string) (*rod.Page, func(), 
 	return page, cleanup, nil
 }
 
-func handle2FA(manager gm.Manager, page *rod.Page) {
+func handle2FA(ctx context.Context, manager gm.Manager, page *rod.Page) {
 	_, err2FAElement := TFAModalVisible(page)
 	if err2FAElement != nil {
 		slog.Error("Error while trying to find 2FA element", "ERROR", err2FAElement)
 		return
 	}
 
-	code, err2FA := get2FACode(manager)
+	code, err2FA := get2FACode(ctx, manager)
 	if err2FA != nil {
 		slog.Error("Error while fetching 2FA code", "ERROR", err2FA)
 	}
@@ -241,21 +241,25 @@ func TFAModalVisible(page *rod.Page) (bool, error) {
 	return false, nil
 }
 
-func get2FACode(manager gm.Manager) (string, error) {
-	var messages []*gmail.Message
-	for len(messages) == 0 {
-		messages = gm.GetMessagesFromLabel(manager, Gmail2FALabelId)
-		time.Sleep(1 * time.Second)
+func get2FACode(ctx context.Context, manager gm.Manager) (string, error) {
+	for {
+		messages := gm.GetMessagesFromLabel(ctx, manager, Gmail2FALabelId)
+		if len(messages) > 0 {
+			latest := messages[0]
+			subject := latest.Payload.Headers[19].Value
+			subjectParts := strings.Split(subject, " ")
+			code := subjectParts[len(subjectParts)-1]
+
+			gm.DeleteMessage(ctx, manager, latest.Id)
+
+			return code, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(1 * time.Second):
+		}
 	}
-
-	latest := messages[0]
-	subject := latest.Payload.Headers[19].Value
-	subjectParts := strings.Split(subject, " ")
-	code := subjectParts[len(subjectParts)-1]
-
-	gm.DeleteMessage(manager, latest.Id)
-
-	return code, nil
 }
 
 func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []string) []internal.Ticket {
