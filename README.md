@@ -179,7 +179,13 @@ Builds a cross-compiled ARM64 Docker image, transfers it to the Raspberry Pi, lo
 To check logs of previous runs, SSH into PI, then run:
 
 ```bash
-journalctl --unit=autogrocery.service -n 200
+journalctl --unit=autogrocery.service -e
+```
+
+To run the service manually and follow the logs: 
+
+```bash
+sudo systemctl start autogrocery.service -f
 ```
 
 ### Features
@@ -226,6 +232,7 @@ This handles cookie refresh (if stale) then runs the Go binary.
 ### Tests
 
 ```bash
+cd go
 go test ./...          # All tests
 go test ./internal/    # Internal packages only
 ```

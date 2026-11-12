@@ -58,6 +58,7 @@ COPY config/ /app/config/
 # Environment variables
 ENV HEADLESS=1
 ENV CHROME_PATH=/usr/bin/chromium
+ENV PYTHONUNBUFFERED=1
 
 # Default command: start Xvfb then run the cookie refresh script
 CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x720x24 &>/dev/null & sleep 1 && python /app/scripts/full-flow.py"]
