@@ -106,11 +106,6 @@ func testManager(fv SheetsAPI) Manager {
 	}
 }
 
-// testEntry creates an Entry with specified values for testing
-func testEntry(date time.Time, store string, total float64) Entry {
-	return Entry{Date: date, Store: store, Total: total}
-}
-
 // ---------------------------------------------------------------------------
 // EntryToStr
 // ---------------------------------------------------------------------------
@@ -718,7 +713,7 @@ func TestWriteToSheet(t *testing.T) {
 				updateErr:  tt.updateErr,
 			})
 
-			got := WriteToSheet(m, tt.values, tt.firstRow)
+			got := WriteSingleTicketToSheet(m, tt.values, tt.firstRow)
 			if got != tt.wantRows {
 				t.Errorf("got %d, want %d", got, tt.wantRows)
 			}
@@ -1363,7 +1358,7 @@ func TestEntryToValueRange_MixedEmptyAndPlusNames(t *testing.T) {
 		Id:    "D001",
 		Date:  time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		Items: Items{
-			{Name: "", Amount: 1, Price: 2.00},   // empty name
+			{Name: "", Amount: 1, Price: 2.00},       // empty name
 			{Name: "+Bonus", Amount: 1, Price: 3.00}, // plus prefix
 			{Name: "Normal", Amount: 1, Price: 5.00}, // normal name
 		},
@@ -1439,5 +1434,177 @@ func TestEntryToValueRange_PlusPrefixVariants(t *testing.T) {
 				t.Errorf("row[0][2] = %q, want %q", vr.Values[0][2], tt.expected)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WriteAllTickets
+// ---------------------------------------------------------------------------
+
+func TestWriteAllTickets_EmptyEntries(t *testing.T) {
+	m := testManager(&fakeValues{})
+	err := WriteAllTickets(m, []Entry{})
+	if err != nil {
+		t.Errorf("WriteAllTickets(empty) = %v, want nil", err)
+	}
+}
+
+func TestWriteAllTickets_SingleEntry(t *testing.T) {
+	m := testManager(&fakeValues{
+		updateResp: &sheets.UpdateValuesResponse{UpdatedCells: 18},
+	})
+
+	entry := Entry{
+		Store: "MERCADONA", Id: "M001",
+		Date:     time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC),
+		FirstRow: 2, LastRow: 3,
+		Items: Items{{Name: "Apple", Amount: 2.5, Price: 3.99}},
+	}
+
+	err := WriteAllTickets(m, []Entry{entry})
+	if err != nil {
+		t.Fatalf("WriteAllTickets(single) error: %v", err)
+	}
+}
+
+func TestWriteAllTickets_MultipleEntries(t *testing.T) {
+	m := testManager(&fakeValues{
+		updateResp: &sheets.UpdateValuesResponse{UpdatedCells: 54},
+	})
+
+	entries := []Entry{
+		{
+			Store: "MERCADONA", Id: "M001",
+			Date:     time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC),
+			FirstRow: 2, LastRow: 3,
+			Items: Items{{Name: "Apple", Amount: 2.5, Price: 3.99}},
+		},
+		{
+			Store: "DIA", Id: "D001",
+			Date:     time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC),
+			FirstRow: 4, LastRow: 6,
+			Items: Items{
+				{Name: "Banana", Amount: 1.0, Price: 2.50},
+				{Name: "Cheese", Amount: 0.5, Price: 15.00},
+			},
+		},
+	}
+
+	err := WriteAllTickets(m, entries)
+	if err != nil {
+		t.Fatalf("WriteAllTickets(multiple) error: %v", err)
+	}
+}
+
+func TestWriteAllTickets_APIError(t *testing.T) {
+	m := testManager(&fakeValues{
+		updateErr: fmt.Errorf("network error"),
+	})
+
+	entry := Entry{
+		Store: "MERCADONA", Id: "M001",
+		Date:     time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC),
+		FirstRow: 2, LastRow: 3,
+		Items: Items{{Name: "Apple", Amount: 2.5, Price: 3.99}},
+	}
+
+	err := WriteAllTickets(m, []Entry{entry})
+	if err == nil {
+		t.Fatal("expected error from API failure, got nil")
+	}
+}
+
+func TestWriteAllTickets_SkipsEntriesWithNoItems(t *testing.T) {
+	m := testManager(&fakeValues{
+		updateResp: &sheets.UpdateValuesResponse{UpdatedCells: 18},
+	})
+
+	entries := []Entry{
+		{
+			Store: "MERCADONA", Id: "M001",
+			Date:     time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC),
+			FirstRow: 2, LastRow: 3,
+			Items: Items{{Name: "Apple", Amount: 2.5, Price: 3.99}},
+		},
+		{
+			Store: "DIA", Id: "D001",
+			Date:     time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC),
+			FirstRow: 4, LastRow: 4,
+			Items: Items{},
+		},
+	}
+
+	err := WriteAllTickets(m, entries)
+	if err != nil {
+		t.Fatalf("WriteAllTickets(skip-empty) error: %v", err)
+	}
+}
+
+func TestWriteAllTickets_AllEntriesEmpty(t *testing.T) {
+	m := testManager(&fakeValues{})
+
+	entries := []Entry{
+		{Store: "MERCADONA", Id: "M001", Date: time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC), FirstRow: 2, LastRow: 2, Items: Items{}},
+	}
+
+	err := WriteAllTickets(m, entries)
+	if err != nil {
+		t.Errorf("WriteAllTickets(all-empty) = %v, want nil", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// formatAllTicketBlocks
+// ---------------------------------------------------------------------------
+
+func TestFormatAllTicketBlocks_Empty(t *testing.T) {
+	m := testManager(&fakeValues{batchUpdateResp: &sheets.BatchUpdateSpreadsheetResponse{}})
+	err := formatAllTicketBlocks(m, []Entry{})
+	if err != nil {
+		t.Errorf("formatAllTicketBlocks(empty) = %v, want nil", err)
+	}
+}
+
+func TestFormatAllTicketBlocks_SingleEntry(t *testing.T) {
+	m := testManager(&fakeValues{batchUpdateResp: &sheets.BatchUpdateSpreadsheetResponse{}})
+
+	entry := Entry{
+		Store: "MERCADONA", Id: "M001",
+		Date:     time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC),
+		FirstRow: 2, LastRow: 3,
+		Items: Items{{Name: "Apple", Amount: 2.5, Price: 3.99}},
+	}
+
+	err := formatAllTicketBlocks(m, []Entry{entry})
+	if err != nil {
+		t.Errorf("formatAllTicketBlocks(single) = %v, want nil", err)
+	}
+}
+
+func TestFormatAllTicketBlocks_MultipleEntries(t *testing.T) {
+	m := testManager(&fakeValues{batchUpdateResp: &sheets.BatchUpdateSpreadsheetResponse{}})
+
+	entries := []Entry{
+		{Store: "MERCADONA", Id: "M001", Date: time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC), FirstRow: 2, LastRow: 3, Items: Items{{Name: "Apple", Amount: 2.5, Price: 3.99}}},
+		{Store: "DIA", Id: "D001", Date: time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC), FirstRow: 4, LastRow: 6, Items: Items{{Name: "Banana", Amount: 1.0, Price: 2.50}, {Name: "Cheese", Amount: 0.5, Price: 15.00}}},
+	}
+
+	err := formatAllTicketBlocks(m, entries)
+	if err != nil {
+		t.Errorf("formatAllTicketBlocks(multiple) = %v, want nil", err)
+	}
+}
+
+func TestFormatAllTicketBlocks_APIError(t *testing.T) {
+	m := testManager(&fakeValues{batchUpdateErr: fmt.Errorf("API error")})
+
+	entry := Entry{
+		Store: "MERCADONA", Id: "M001", Date: time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC),
+		FirstRow: 2, LastRow: 3, Items: Items{{Name: "Apple", Amount: 2.5, Price: 3.99}},
+	}
+
+	err := formatAllTicketBlocks(m, []Entry{entry})
+	if err == nil {
+		t.Fatal("expected error from API failure, got nil")
 	}
 }

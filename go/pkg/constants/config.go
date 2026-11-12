@@ -2,4 +2,4 @@ package constants
 
 var TestMode = false
 
-const HeadlessMode = false
+const HeadlessMode = true

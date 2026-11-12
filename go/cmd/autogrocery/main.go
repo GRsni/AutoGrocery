@@ -152,13 +152,9 @@ func getSheetName(currentYear int, currentMonth time.Month) string {
 }
 
 func uploadNewTickets(newEntryList []sh.Entry, sheetsManager sh.Manager) {
-	for _, entryToUpload := range newEntryList {
-		valueRange, err := entryToUpload.ToValueRange()
-		if err != nil {
-			slog.Info("Unable to create value range object, skipping", "ERROR", err)
-			continue
-		}
-		_ = sh.WriteToSheet(sheetsManager, valueRange, entryToUpload.FirstRow+1)
+	if err := sh.WriteAllTickets(sheetsManager, newEntryList); err != nil {
+		slog.Error("Failed to upload tickets", "ERROR", err)
+		os.Exit(1)
 	}
 }
 
@@ -180,7 +176,7 @@ func getAllTicketsFromStores(ctx context.Context, gmManager gm.Manager, sheetEnt
 			defer wg.Done()
 			select {
 			case <-ctx.Done():
-				results <- map[string][]internal.Ticket{store: []internal.Ticket{}}
+				results <- map[string][]internal.Ticket{store: {}}
 				return
 			default:
 			}
@@ -234,7 +230,7 @@ func getMercadonaTickets(ctx context.Context, manager gm.Manager, lastEntryToCom
 }
 
 func getDiaTickets(ctx context.Context, lastEntryToCompare sh.Entry, excluded internal.Excluded) []internal.Ticket {
-	page, cleanup, err := dia.LoginToDia(CredsFilePath, CookiesPath)
+	page, cleanup, err := dia.LoginToDia(ctx, CredsFilePath, CookiesPath)
 	if err != nil {
 		slog.Warn("Unable to fetch tickets from DIA", "ERROR", err)
 		if cleanup != nil {
@@ -242,7 +238,7 @@ func getDiaTickets(ctx context.Context, lastEntryToCompare sh.Entry, excluded in
 		}
 		return []internal.Ticket{}
 	}
-	newDiaTickets := dia.GetTicketList(page, lastEntryToCompare, excluded.DiaIDs)
+	newDiaTickets := dia.GetTicketList(ctx, page, lastEntryToCompare, excluded.DiaIDs)
 	cleanup()
 	page.Close()
 	return newDiaTickets

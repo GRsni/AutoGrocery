@@ -17,11 +17,12 @@ import (
 	"strings"
 	"time"
 
+	"context"
+
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/devices"
 	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/launcher"
-	"google.golang.org/api/gmail/v1"
 )
 
 // Selector constants for Carrefour web scraping.
@@ -172,7 +173,7 @@ func LoginToCarrefour(ctx context.Context, manager gm.Manager, credsPath string)
 	utils.HumanDelay()
 	slog.Debug("Entered user details, waiting for 2FA email", "STORE", "CARREFOUR")
 
-	handle2FA(manager, page)
+	handle2FA(ctx, manager, page)
 
 	page.MustElement(SelectorAccountMenuLogged).MustClick()
 	page.MustWaitStable().MustWaitIdle()

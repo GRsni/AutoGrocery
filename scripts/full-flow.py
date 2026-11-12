@@ -10,6 +10,7 @@ then exports cookies in Netscape format to config/credentials/cookies-www-dia-es
 import json
 import sys
 import time
+import argparse
 from datetime import datetime
 from pathlib import Path
 
@@ -25,15 +26,18 @@ MAX_COOKIES_AGE = 55
 HEADLESS = True
 
 
-def load_password() -> str:
+def load_credentials() -> dict[str]:
     """Load Dia password from secrets.json."""
     with open(SECRETS_FILE, "r") as f:
         secrets = json.load(f)
-    password = secrets.get("dia", {}).get("password")
-    if not password or password == "null":
+    credentials = secrets.get("dia", {})
+    if not credentials["username"] or credentials["username"] == "null":
+        print("Error: Dia username not found in secrets.json", file=sys.stderr)
+        sys.exit(1)
+    if not credentials["password"] or credentials["password"] == "null":
         print("Error: Dia password not found in secrets.json", file=sys.stderr)
         sys.exit(1)
-    return password
+    return credentials
 
 
 def parse_existing_cookies(filepath: Path) -> list[dict]:
@@ -140,11 +144,12 @@ def run_go_service(project_root: Path) -> None:
             ["which", "autogrocery"], capture_output=True, text=True
         )
         if result.returncode == 0:
+            print()
             cmd = ["autogrocery"]
         else:
             # Fall back to go run for local development
-            main_go = project_root / "cmd" / "autogrocery" / "main.go"
-            cmd = ["go", "run", str(main_go), "--stores", "DIA"]
+            main_go = project_root / "go" /"cmd" / "autogrocery" / "main.go"
+            cmd = ["go", "run", str(main_go)]
 
     result = subprocess.run(
         cmd,
@@ -157,21 +162,8 @@ def run_go_service(project_root: Path) -> None:
         print("Go service completed successfully.")
 
 
-def main():
-    password = load_password()
-
-    # Check if existing cookies are still fresh
-    if cookies_are_fresh(COOKIES_FILE, max_age_minutes=MAX_COOKIES_AGE):
-        print(
-            f"Cookies are fresh (less than {MAX_COOKIES_AGE} minutes old). Skipping browser login."
-        )
-        print("Running Go service directly...")
-        run_go_service(PROJECT_ROOT)
-        return
-
-    print("Cookies are stale or missing. Refreshing...")
+def reload_cookies(credentials: dict[str]):
     print("Opening dia.es/login with invisible_playwright...")
-
     # Pass --no-sandbox for Docker/headless environments
     extra_args = ["--no-sandbox"]
 
@@ -194,11 +186,6 @@ def main():
             page.wait_for_load_state("networkidle")
             time.sleep(2)
 
-            # Load username from secrets.json
-            with open(SECRETS_FILE, "r") as f:
-                secrets = json.load(f)
-            username = secrets["dia"]["username"]
-
             # Fill email field
             print("Looking for email field...")
             email_selector = "[data-test-id='email_input']"
@@ -207,7 +194,7 @@ def main():
                 if email_input:
                     print("Email field found. Filling username...")
                     # Type character by character with human-like delays
-                    for char in username:
+                    for char in credentials["username"]:
                         email_input.type(char, delay=20)
                     time.sleep(1)
                     print("Waiting for page to stabilize...")
@@ -225,7 +212,7 @@ def main():
                 password_input = page.wait_for_selector(password_selector, timeout=5000)
                 if password_input:
                     print("Password field found. Filling password...")
-                    for char in password:
+                    for char in credentials["password"]:
                         password_input.type(char, delay=50)
                     time.sleep(1)
                     password_visible = True
@@ -279,7 +266,7 @@ def main():
                             )
                             if password_input:
                                 print("Password field found. Filling password...")
-                                for char in password:
+                                for char in credentials["password"]:
                                     password_input.type(char, delay=50)
                                 time.sleep(1)
                                 print(
@@ -365,14 +352,32 @@ def main():
 
             page.close()
 
-            # Run the Go service to export all tickets
-            run_go_service(PROJECT_ROOT)
-
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
         finally:
             browser.close()
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-f", "--force-reload", action='store_true', help="Forcefully reload cookies")
+    parser.add_argument("--skip-go", action='store_true', help="Skip running the Go service, only reload cookies")
+
+    args = parser.parse_args()
+
+    # Check if existing cookies are still fresh
+    if args.force_reload or not cookies_are_fresh(COOKIES_FILE, max_age_minutes=MAX_COOKIES_AGE):
+        print("Cookies will be refreshed...")
+        creds = load_credentials()
+        reload_cookies(credentials=creds)
+
+    if args.skip_go: 
+        print("Skip Go service flag enabled, terminating early")    
+        return
+    
+    print("Running go service")
+    run_go_service(PROJECT_ROOT)
+   
 
 
 if __name__ == "__main__":

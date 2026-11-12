@@ -6,6 +6,7 @@ import (
 	"autoGrocery/pkg/constants"
 	"autoGrocery/utils"
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -147,7 +148,7 @@ func LoadSessionFromCookies(cookiesPath string) ([]*proto.NetworkCookieParam, er
 	return rodCookies, nil
 }
 
-func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), error) {
+func LoginToDia(ctx context.Context, credentialsPath string, cookiesPath string) (*rod.Page, func(), error) {
 	// Launch browser (headless by default)
 
 	userDataDir := os.Getenv("CHROME_USER_DATA_DIR")
@@ -213,6 +214,13 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 	}
 	page.MustNavigate("https://www.dia.es/my-account").MustWaitLoad().MustWaitIdle()
 
+	select {
+	case <-ctx.Done():
+		cleanup()
+		return nil, cleanup, ctx.Err()
+	default:
+	}
+
 	slog.Info("✓ Navigated to Dia homepage", "STORE", constants.DIA)
 
 	//page.MustReload().MustWaitLoad().MustWaitIdle()
@@ -239,7 +247,13 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		// Type character by character with small delays
 		for _, char := range credentials.Dia.Username {
 			page.Keyboard.MustType(input.Key(char))
-			time.Sleep(time.Duration(50+rand.Intn(100)) * time.Millisecond)
+			time.Sleep(time.Duration(50 + rand.Intn(100)) * time.Millisecond)
+		}
+		select {
+		case <-ctx.Done():
+			cleanup()
+			return nil, cleanup, ctx.Err()
+		default:
 		}
 		page.MustWaitStable()
 		utils.HumanDelay()
@@ -258,7 +272,13 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 		// Type character by character with small delays
 		for _, char := range credentials.Dia.Password {
 			page.Keyboard.MustType(input.Key(char))
-			time.Sleep(time.Duration(50+rand.Intn(100)) * time.Millisecond)
+			time.Sleep(time.Duration(50 + rand.Intn(100)) * time.Millisecond)
+		}
+		select {
+		case <-ctx.Done():
+			cleanup()
+			return nil, cleanup, ctx.Err()
+		default:
 		}
 		page.MustWaitStable()
 		utils.HumanDelay()
@@ -287,7 +307,7 @@ func LoginToDia(credentialsPath string, cookiesPath string) (*rod.Page, func(), 
 	return page, cleanup, nil
 }
 
-func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []string) []internal.Ticket {
+func GetTicketList(ctx context.Context, page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []string) []internal.Ticket {
 	ticketLisFound, ticketListLink, err := page.Has(SelectorTicketListLink)
 	if err != nil {
 		slog.Debug("Error finding ticket list link", "ERROR", err)
@@ -313,6 +333,13 @@ func GetTicketList(page *rod.Page, lastEntryToCompare sh.Entry, excludedIds []st
 	}
 	tickets := make([]internal.Ticket, 0)
 	for _, ticketElement := range ticketElements {
+		select {
+		case <-ctx.Done():
+			slog.Info("Dia scraping cancelled by context", "STORE", constants.DIA)
+			return tickets
+		default:
+		}
+
 		text, _ := ticketElement.Text()
 		ticketDate, ticketTotal, errTicketDetails := getDateAndTotal(text)
 		if errTicketDetails != nil {

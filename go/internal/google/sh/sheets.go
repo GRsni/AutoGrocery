@@ -310,7 +310,7 @@ func GetLastEntryForStore(tickets []Entry, shopName string) *Entry {
 	return nil
 }
 
-func WriteToSheet(manager Manager, valueRange *sheets.ValueRange, firstRow int) int {
+func WriteSingleTicketToSheet(manager Manager, valueRange *sheets.ValueRange, firstRow int) int {
 	ticketItems := len(valueRange.Values)
 
 	for i, row := range valueRange.Values {
@@ -335,26 +335,99 @@ func WriteToSheet(manager Manager, valueRange *sheets.ValueRange, firstRow int) 
 	return ticketItems + 1
 }
 
-func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
-	startIdx := int64(firstRow - 1) // 0-based index of first row (assumes firstRow is 1-based)
-	totalRowIdx := int64(firstRow + ticketItems - 1)
-	endIdx := totalRowIdx + 1 // exclusive, includes total row
+// WriteAllTickets writes all entries in a single Update call (data) plus one
+// BatchUpdate call for formatting — O(1) API calls instead of O(N) per-ticket.
+func WriteAllTickets(manager Manager, entries []Entry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	// Add per-ticket rows with TOTAL formulas to a single [][]any slice.
+	var finalValues [][]any
+	for _, entry := range entries {
+		vr, err := entry.ToValueRange()
+		if err != nil {
+			slog.Warn("Skipping entry with no items", "ID", entry.Id, "ERROR", err)
+			continue
+		}
+		for _, row := range vr.Values {
+			totalFunc := fmt.Sprintf("=D%d*E%d", len(finalValues)+HeaderSize+1, len(finalValues)+HeaderSize+1)
+			finalValues = append(finalValues, append(row, totalFunc))
+		}
+		ticketItems := len(vr.Values)
+		sumStart := len(finalValues) - ticketItems
+		sumEnd := len(finalValues) - 1
+
+		totalFunc := fmt.Sprintf("=SUM(F%d:F%d)", sumStart+HeaderSize+1, sumEnd+HeaderSize+1)
+		finalValues = append(finalValues, []any{"", "", "", "", "TOTAL", totalFunc})
+	}
+
+	if len(finalValues) == 0 {
+		return nil
+	}
+	var unmergeRequests []*sheets.Request
+	unmergeRequests = append(unmergeRequests, &sheets.Request{
+		UnmergeCells: &sheets.UnmergeCellsRequest{
+			Range: &sheets.GridRange{
+				SheetId:          manager.sheetId,
+				StartRowIndex:    2,
+				EndRowIndex:      200,
+				StartColumnIndex: 0,
+				EndColumnIndex:   2,
+			}},
+	})
+
+	//unmerge all cells before inserting any data
+	_, err := manager.service.BatchUpdate(manager.config.Sheets.MainID, &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: unmergeRequests})
+	if err != nil {
+		return fmt.Errorf("unmerge cells requests failed before loading new data: %s", err)
+	}
+
+	// Write all data in one call.
+	firstRow := HeaderSize + 1 // row after header
+	lastRow := firstRow + len(finalValues) - 1
+	writeRange := fmt.Sprintf("%s!A%d:F%d", manager.PageName, firstRow, lastRow)
+	valueRange := &sheets.ValueRange{MajorDimension: "ROWS", Values: finalValues}
+
+	resp, err := manager.service.Update(manager.config.Sheets.MainID, writeRange, valueRange, "USER_ENTERED")
+	if err != nil {
+		slog.Error("Unable to batch-write data to sheet", "ERROR", err)
+		return fmt.Errorf("batch write failed: %w", err)
+	}
+	slog.Info("Batch-written all entries to sheet", "CELL_COUNT", resp.UpdatedCells, "ENTRIES", len(entries))
+
+	// Batch-format all ticket blocks in one call.
+	if err := formatAllTicketBlocks(manager, entries); err != nil {
+		slog.Warn("Unable to batch-format tickets", "ERROR", err)
+	}
+
+	return nil
+}
+
+// ticketFormatRequests builds the 6 formatting requests for a single ticket block.
+// firstRow and totalRowIdx are 1-based row numbers; sheetId is the numeric sheet ID.
+func ticketFormatRequests(firstRow, totalRowIdx int, sheetId int64) []*sheets.Request {
+	startIdx := int64(firstRow)
+	totalRowIdxInt64 := int64(totalRowIdx)
+	endIdx := totalRowIdxInt64 + 1 // exclusive, includes TOTAL row
 
 	blueColor := &sheets.Color{Red: 207.0 / 255.0, Green: 226.0 / 255.0, Blue: 243.0 / 255.0}
 
 	fullRange := &sheets.GridRange{
-		SheetId:          manager.sheetId,
+		SheetId:          sheetId,
 		StartRowIndex:    startIdx,
 		EndRowIndex:      endIdx,
 		StartColumnIndex: 0,
 		EndColumnIndex:   6,
 	}
 
-	requests := []*sheets.Request{
+	return []*sheets.Request{
+		// Clear any existing merges in the ticket range
 		{
 			UnmergeCells: &sheets.UnmergeCellsRequest{Range: fullRange},
 		},
-		// No background, no bold, no border, all cells minus TOTAL ROW
+		// Reset background, text format, and borders for all cells except TOTAL row
 		{
 			RepeatCell: &sheets.RepeatCellRequest{
 				Range:  fullRange,
@@ -362,13 +435,13 @@ func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
 				Fields: "userEnteredFormat(backgroundColorStyle,textFormat,borders)",
 			},
 		},
-		// Blue background + bold for entire TOTAL row (columns C:F = indices 2:6)
+		// Blue background + bold for TOTAL row (columns A:F = indices 0:6)
 		{
 			RepeatCell: &sheets.RepeatCellRequest{
 				Range: &sheets.GridRange{
-					SheetId:          manager.sheetId,
-					StartRowIndex:    totalRowIdx,
-					EndRowIndex:      totalRowIdx + 1,
+					SheetId:          sheetId,
+					StartRowIndex:    totalRowIdxInt64,
+					EndRowIndex:      totalRowIdxInt64 + 1,
 					StartColumnIndex: 0,
 					EndColumnIndex:   6,
 				},
@@ -385,9 +458,9 @@ func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
 		{
 			UpdateBorders: &sheets.UpdateBordersRequest{
 				Range: &sheets.GridRange{
-					SheetId:          manager.sheetId,
-					StartRowIndex:    totalRowIdx,
-					EndRowIndex:      totalRowIdx + 1,
+					SheetId:          sheetId,
+					StartRowIndex:    totalRowIdxInt64,
+					EndRowIndex:      totalRowIdxInt64 + 1,
 					StartColumnIndex: 4,
 					EndColumnIndex:   6,
 				},
@@ -397,26 +470,26 @@ func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
 				Right:  &sheets.Border{Style: "SOLID"},
 			},
 		},
-		// Merge the date cell vertically across ticket rows (column A = index 0)
+		// Merge date cell vertically (column A = index 0)
 		{
 			MergeCells: &sheets.MergeCellsRequest{
 				Range: &sheets.GridRange{
-					SheetId:          manager.sheetId,
-					StartRowIndex:    int64(firstRow) - 1,
-					EndRowIndex:      totalRowIdx,
+					SheetId:          sheetId,
+					StartRowIndex:    startIdx,
+					EndRowIndex:      totalRowIdxInt64,
 					StartColumnIndex: 0,
 					EndColumnIndex:   1,
 				},
 				MergeType: "MERGE_COLUMNS",
 			},
 		},
-		// Merge the store name cell vertically (column B = index 1)
+		// Merge store name cell vertically (column B = index 1)
 		{
 			MergeCells: &sheets.MergeCellsRequest{
 				Range: &sheets.GridRange{
-					SheetId:          manager.sheetId,
-					StartRowIndex:    int64(firstRow) - 1,
-					EndRowIndex:      totalRowIdx,
+					SheetId:          sheetId,
+					StartRowIndex:    startIdx,
+					EndRowIndex:      totalRowIdxInt64,
 					StartColumnIndex: 1,
 					EndColumnIndex:   2,
 				},
@@ -424,6 +497,30 @@ func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
 			},
 		},
 	}
+}
+
+// formatAllTicketBlocks builds formatting requests for every entry and sends
+// them in a single BatchUpdate call.
+func formatAllTicketBlocks(manager Manager, entries []Entry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	var requests []*sheets.Request
+	for _, entry := range entries {
+		totalRowIdx := entry.LastRow
+		requests = append(requests, ticketFormatRequests(entry.FirstRow, totalRowIdx, manager.sheetId)...)
+	}
+
+	_, err := manager.service.BatchUpdate(manager.config.Sheets.MainID, &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: requests,
+	})
+	return err
+}
+
+func FormatTicketBlock(manager Manager, firstRow int, ticketItems int) error {
+	totalRowIdx := firstRow + ticketItems - 1
+	requests := ticketFormatRequests(firstRow, totalRowIdx, manager.sheetId)
 
 	_, err := manager.service.BatchUpdate(manager.config.Sheets.MainID, &sheets.BatchUpdateSpreadsheetRequest{
 		Requests: requests,
