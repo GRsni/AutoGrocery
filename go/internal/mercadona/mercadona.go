@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -80,7 +81,7 @@ func getTicketDetails(ctx context.Context, manager gm.Manager, message *gmail.Me
 	items := getTicketItems(ctx, manager, message)
 
 	if !items.IsTotalValid(ticketTotal) {
-		slog.Warn("Ticket price does not match up, discarding")
+		slog.Warn("Ticket price does not match up, discarding", "STORE", constants.MERCADONA)
 		return nil
 	}
 	return &internal.Ticket{
@@ -102,7 +103,7 @@ func getTicketItems(ctx context.Context, manager gm.Manager, m *gmail.Message) i
 	fileBytes := gm.GetAttachmentFromMessage(ctx, manager, m.Id, m.Payload.Parts[1].Body.AttachmentId)
 	r, err := pdf.NewReader(bytes.NewReader(fileBytes), int64(len(fileBytes)))
 	if err != nil {
-		slog.Error("Unable to parse data as PDF file", "ERROR", err)
+		slog.Error("Unable to parse data as PDF file", "ERROR", err, "STORE", constants.MERCADONA)
 		return items
 	}
 
@@ -118,49 +119,57 @@ func getTicketItems(ctx context.Context, manager gm.Manager, m *gmail.Message) i
 		for rowIndex := TicketHeaderRows; rowIndex <= len(rows); rowIndex++ {
 			row := rows[rowIndex]
 			if row.Content[1].S == "PARKING" {
-				slog.Debug("Parking item found, skipping")
+				slog.Debug("Parking item found, skipping", "STORE", constants.MERCADONA)
 				rowIndex++
 				continue
 			}
 			if len(row.Content) < 2 {
-				slog.Warn("Error while reading item line")
+				slog.Warn("Error while reading item line", "STORE", constants.MERCADONA)
 				continue
 			}
 			if row.Content[0].S == "TOTAL (€)" {
-				slog.Debug("End of ticket reached, breaking out")
+				slog.Debug("End of ticket reached, breaking out", "STORE", constants.MERCADONA)
 				break
 			}
 
 			itemName := row.Content[1].S
-			var price = 0.0
-			var qty = 0.0
-			var total = 0.0
-			if len(row.Content) == 2 {
-				rowIndex++
-				nextRow := rows[rowIndex]
-				qty = utils.ParseQtyWithPrecision(nextRow.Content[0].S, 3)
-				price = utils.ParsePrice(nextRow.Content[1].S)
-				total = utils.StringToFloat(nextRow.Content[2].S, 2)
-			} else {
-				qty = utils.ParseQty(row.Content[0].S)
-				price = utils.ParsePrice(row.Content[2].S)
-				if qty > 1 {
-					total = utils.StringToFloat(row.Content[3].S, 3)
-				} else {
-					total = price
-				}
-			}
+			qty, price, total, newIndex := readItemData(rows, rowIndex)
+			rowIndex = newIndex
 			totalCorrect := isTotalCorrect(qty, price, total)
 			if !totalCorrect {
-				slog.Debug("Item total not correct, discarding item")
+				slog.Debug("Item total not correct, discarding item", "ITEM", itemName, "STORE", constants.MERCADONA)
+				fmt.Printf("%.2f", qty*price)
 				continue
 			}
-			items = append(items, internal.Item{Name: itemName, Amount: qty, Price: price})
+			items = append(items, internal.Item{Name: itemName, Amount: qty, Price: price, Total: total})
 		}
 	}
 	return items
 }
 
+func readItemData(rows pdf.Rows, rowIndex int) (float64, float64, float64, int) {
+	var price float64
+	var qty float64
+	var total float64
+	row := rows[rowIndex]
+	if len(row.Content) == 2 {
+		rowIndex++
+		nextRow := rows[rowIndex]
+		qty = utils.ParseQtyWithPrecision(nextRow.Content[0].S, 3)
+		price = utils.ParsePrice(nextRow.Content[1].S)
+		total = utils.StringToFloat(nextRow.Content[2].S, 2)
+	} else {
+		qty = utils.ParseQty(row.Content[0].S)
+		price = utils.ParsePrice(row.Content[2].S)
+		if qty > 1 {
+			total = utils.StringToFloat(row.Content[3].S, 3)
+		} else {
+			total = price
+		}
+	}
+	return qty, price, total, rowIndex
+}
+
 func isTotalCorrect(qty float64, pricePer float64, totalFound float64) bool {
-	return utils.FloatsEqual(utils.ToFixed(qty*pricePer, 2), totalFound)
+	return math.Abs(qty*pricePer-totalFound) <= 0.005+1e-9
 }

@@ -370,7 +370,7 @@ func WriteAllTickets(manager Manager, entries []Entry) error {
 		UnmergeCells: &sheets.UnmergeCellsRequest{
 			Range: &sheets.GridRange{
 				SheetId:          manager.sheetId,
-				StartRowIndex:    2,
+				StartRowIndex:    1,
 				EndRowIndex:      200,
 				StartColumnIndex: 0,
 				EndColumnIndex:   2,

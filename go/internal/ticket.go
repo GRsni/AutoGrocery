@@ -13,6 +13,7 @@ type Item struct {
 	Name      string
 	Amount    float64
 	Price     float64
+	Total     float64
 	Discount  float64
 	Cancelled bool
 }
@@ -67,13 +68,13 @@ func (ticket Ticket) IsExcluded(ids []string) bool {
 }
 
 func (items Items) IsTotalValid(total float64) bool {
-	itemsTotal := 0.0
+	var itemsTotal int64
 
 	for _, item := range items {
-		itemsTotal += utils.ToFixed(item.Amount*item.Price, 2)
+		itemsTotal += utils.ToCents(item.Total)
 	}
 
-	return utils.FloatsEqual(total, utils.ToFixed(itemsTotal, 2))
+	return itemsTotal == utils.ToCents(total)
 }
 
 func (items Items) IsTotalValidWithPrecision(total float64, precision float64) bool {

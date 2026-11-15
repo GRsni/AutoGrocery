@@ -341,18 +341,21 @@ func getTicketDetails(page *rod.Page, date time.Time, total float64) *internal.T
 
 	items := getItemList(page, hasShowMore)
 
-	//page.MustElement("table.table-white tfoot tr").MustElement("td.price").MustText()
 	totalTicketDiscount := getTotalTicketDiscount(page)
 	if math.Abs(totalTicketDiscount) > 0 {
-		totalDiscountShare := totalTicketDiscount / (float64)(len(items))
 		slog.Info("Found general discount applied to ticket, will be split between items", "DISCOUNT", totalTicketDiscount)
+		totalDiscountShare := totalTicketDiscount / (float64)(len(items))
 		for i := range items {
 			items[i].Price = items[i].Price + totalDiscountShare/items[i].Amount
 		}
 	}
 
+	for i := range items {
+		items[i].Total = items[i].Price * items[i].Amount
+	}
+
 	if !items.IsTotalValidWithPrecision(total, 0.02) {
-		slog.Warn("Ticket price does not match up, discarding")
+		slog.Warn("Ticket price does not match up, discarding", "STORE", constants.CARREFOUR)
 		closeTicketPage(page)
 		return nil
 	}

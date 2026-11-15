@@ -148,7 +148,7 @@ func Test_ticketIsValid(t *testing.T) {
 			name: "valid ticket - single item",
 			args: args{
 				total: 2.50,
-				items: Items{{Name: "Milk", Amount: 1, Price: 2.50}},
+				items: Items{{Name: "Milk", Amount: 1, Price: 2.50, Total: 2.50}},
 			},
 			want: true,
 		},
@@ -157,8 +157,8 @@ func Test_ticketIsValid(t *testing.T) {
 			args: args{
 				total: 5.70,
 				items: Items{
-					{Name: "Milk", Amount: 1, Price: 2.50},
-					{Name: "Bread", Amount: 2, Price: 1.60},
+					{Name: "Milk", Amount: 1, Price: 2.50, Total: 2.50},
+					{Name: "Bread", Amount: 2, Price: 1.60, Total: 3.20},
 				},
 			},
 			want: true,
@@ -192,10 +192,34 @@ func Test_ticketIsValid(t *testing.T) {
 			args: args{
 				total: 1.50,
 				items: Items{
-					{Name: "Item A", Amount: 1, Price: 0.50},
-					{Name: "Item B", Amount: 1, Price: 0.50},
-					{Name: "Item C", Amount: 1, Price: 0.50},
+					{Name: "Item A", Amount: 1, Price: 0.50, Total: 0.50},
+					{Name: "Item B", Amount: 1, Price: 0.50, Total: 0.50},
+					{Name: "Item C", Amount: 1, Price: 0.50, Total: 0.50},
 				},
+			},
+			want: true,
+		},
+		{
+			name: "non-whole amount - 0.125 kg at €8.99/kg",
+			args: args{
+				total: 1.12,
+				items: Items{{Name: "Cheese", Amount: 0.125, Price: 8.99, Total: 1.12}},
+			},
+			want: true,
+		},
+		{
+			name: "non-whole amount - 0.625 kg at €4.79/kg",
+			args: args{
+				total: 2.99,
+				items: Items{{Name: "Ham", Amount: 0.625, Price: 4.79, Total: 2.99}},
+			},
+			want: true,
+		},
+		{
+			name: "non-whole amount - 1.375 kg at €6.49/kg",
+			args: args{
+				total: 8.92,
+				items: Items{{Name: "Apples", Amount: 1.375, Price: 6.49, Total: 8.92}},
 			},
 			want: true,
 		},

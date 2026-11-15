@@ -27,7 +27,12 @@ func round(num float64) int {
 
 func ToFixed(num float64, precision int) float64 {
 	output := math.Pow(10, float64(precision))
-	return float64(round(num*output)) / output
+	return float64(math.Round(num*output)) / output
+}
+
+func ToCents(x float64) int64 {
+	x = math.Round(x*1e6) / 1e6 // strip float noise
+	return int64(math.Round(x * 100))
 }
 
 func StringToFloat(str string, precision int) float64 {

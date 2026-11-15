@@ -247,7 +247,7 @@ func LoginToDia(ctx context.Context, credentialsPath string, cookiesPath string)
 		// Type character by character with small delays
 		for _, char := range credentials.Dia.Username {
 			page.Keyboard.MustType(input.Key(char))
-			time.Sleep(time.Duration(50 + rand.Intn(100)) * time.Millisecond)
+			time.Sleep(time.Duration(50+rand.Intn(100)) * time.Millisecond)
 		}
 		select {
 		case <-ctx.Done():
@@ -272,7 +272,7 @@ func LoginToDia(ctx context.Context, credentialsPath string, cookiesPath string)
 		// Type character by character with small delays
 		for _, char := range credentials.Dia.Password {
 			page.Keyboard.MustType(input.Key(char))
-			time.Sleep(time.Duration(50 + rand.Intn(100)) * time.Millisecond)
+			time.Sleep(time.Duration(50+rand.Intn(100)) * time.Millisecond)
 		}
 		select {
 		case <-ctx.Done():
@@ -450,6 +450,7 @@ func getItemList(page *rod.Page) (internal.Items, error) {
 
 	items = removeCancelledItems(items)
 	items = applyDiscounts(items)
+	items = updateTotals(items)
 	return items, nil
 }
 
@@ -582,6 +583,13 @@ func applyDiscounts(items []internal.Item) []internal.Item {
 		if items[i].Discount < 0 {
 			items[i].Price = items[i].Price + items[i].Discount/items[i].Amount
 		}
+	}
+	return items
+}
+
+func updateTotals(items []internal.Item) []internal.Item {
+	for i := range items {
+		items[i].Total = items[i].Price * items[i].Amount
 	}
 	return items
 }

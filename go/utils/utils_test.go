@@ -74,6 +74,7 @@ func TestToFixed(t *testing.T) {
 		{-1.235, 2, -1.24},
 		{1.0, 0, 1.0},
 		{1.000, 3, 1.0},
+		{0.178 * 2.5, 2, .45},
 	}
 
 	for _, tc := range tests {

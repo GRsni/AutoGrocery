@@ -344,13 +344,13 @@ func Test_Items_IsTotalValid(t *testing.T) {
 	}{
 		{
 			name:     "single item exact match",
-			items:    internal.Items{{Name: "Milk", Amount: 2, Price: 1.50}},
+			items:    internal.Items{{Name: "Milk", Amount: 2, Price: 1.50, Total: 3.00}},
 			total:    3.00,
 			expected: true,
 		},
 		{
 			name:     "multiple items sum match",
-			items:    internal.Items{{Name: "A", Amount: 1, Price: 2.50}, {Name: "B", Amount: 1, Price: 3.50}},
+			items:    internal.Items{{Name: "A", Amount: 1, Price: 2.50, Total: 2.50}, {Name: "B", Amount: 1, Price: 3.50, Total: 3.50}},
 			total:    6.00,
 			expected: true,
 		},
@@ -368,7 +368,7 @@ func Test_Items_IsTotalValid(t *testing.T) {
 		},
 		{
 			name:     "floating point precision match",
-			items:    internal.Items{{Name: "A", Amount: 3, Price: 0.33}},
+			items:    internal.Items{{Name: "A", Amount: 3, Price: 0.33, Total: 0.99}},
 			total:    0.99,
 			expected: true,
 		},
